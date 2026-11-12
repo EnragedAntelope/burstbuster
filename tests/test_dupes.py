@@ -57,6 +57,7 @@ def test_dupes_mode_keeps_one_best_copy(tmp_path):
 def test_look_tells_resize_from_other_picture(tmp_path):
     _photo(tmp_path / "a.jpg", 1)
     Image.open(tmp_path / "a.jpg").resize((120, 90)).save(tmp_path / "s.jpg")
+    Image.open(tmp_path / "a.jpg").convert("L").resize((120, 90)).save(tmp_path / "g.jpg")  # black-and-white edit
     _photo(tmp_path / "b.jpg", 2)
-    la, ls, lb = (np.array(scan.look(str(tmp_path / n))) for n in ("a.jpg", "s.jpg", "b.jpg"))
-    assert la @ ls > 0.97 > la @ lb
+    la, ls, lg, lb = (np.array(scan.look(str(tmp_path / n))) for n in ("a.jpg", "s.jpg", "g.jpg", "b.jpg"))
+    assert la @ ls > 0.97 > max(la @ lg, la @ lb)

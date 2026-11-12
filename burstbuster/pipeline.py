@@ -92,10 +92,9 @@ def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, l
     shots = _not_aside(shots, groups)
 
     # Smaller saves of the same capture: the picker would judge them on blur and smile, and could keep one.
-    looks = feats
-    if mode == "dupes":  # no embeddings: compare tiny thumbnails, only where shots share a capture time
-        n = Counter((s.camera, s.time) for s in shots if s.time is not None and s.exif.get("dims"))
-        looks = {s.id: {"emb": scan.look(s.primary)} for s in shots if n[(s.camera, s.time)] > 1}
+    # Tiny colour thumbnails, not the model embedding: that ignores colour, so a black-and-white edit would match.
+    n = Counter((s.camera, s.time) for s in shots if s.time is not None and s.exif.get("dims"))
+    looks = {s.id: {"emb": scan.look(s.primary)} for s in shots if n[(s.camera, s.time)] > 1}
     for g in group.resized_copies(shots, looks):
         _add_copies(groups, g, feats, lambda k, s: f"Smaller copy ({_dims(s)}) of {_rel(k, root)}",
                     f"Full-size original ({_dims(g[0])})")

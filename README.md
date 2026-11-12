@@ -83,7 +83,8 @@ It also tidies up copies:
 - So is the same picture with different photo details: a copy where a rating, tag or date was written into the
   file (Explorer, Lightroom, exiftool) but the picture itself was not re-saved. JPEG, PNG and HEIC.
 - Smaller saves of the same photo (same camera and capture time, same shape, for example an export or a shared
-  copy) are found too, and the full-size one is kept.
+  copy) are found too, and the full-size one is kept. A smaller save with different colours (a black-and-white or
+  filtered edit) is not a copy and is left alone.
 - Among copies of one picture, the one kept is the first that wins on: companion files (Live Photo, RAW, sidecar),
   then more photo details (date, camera, place, rating), then a name that does not end in "copy" or "(1)", then
   the shortest path, then the oldest file. The reason is shown on the kept photo.

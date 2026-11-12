@@ -8,16 +8,18 @@ approval. User-facing usage lives in README.md; this file is for working on the 
 
 _Last verified: 2026-11-12_
 
-- **Status:** main is v1.1.0 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
+- **Status:** main is v1.1.1 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
   pytest on Windows, Ubuntu and macOS x Python 3.11-3.14 (`.github/workflows/tests.yml`).
 - **Works:** read-only CLI scan; grouping and picking (eval passed on a private local test set at all three
   levels before release); journaled move / restore / recycle with tests; pywebview GUI (start, progress, review with
   compare and keyboard, done); optional local-only VLM second opinion (tested with LM Studio); following one
   person through a multi-person burst (automatic, plus a "Focus on a person" click override in review);
-  smaller saves of one capture (exports, shared copies) set aside before burst picking, full size kept;
+  smaller saves of one capture (exports, shared copies) set aside before burst picking, full size kept, matched
+  in both modes by `scan.look` (tiny brightness + colour thumbnail; the DINOv2 embedding ignores colour, so a
+  black-and-white edit would match);
   exact copies keep the one with companion files, then more EXIF/XMP, then a non-"copy" name; same picture with
   edited metadata (JPEG/PNG/HEIC `scan.pixel_hash`) grouped as copies; DupeDestroyer mode (`mode="dupes"`,
-  start-screen toggle, `scan --dupes`): copies only, no models, resized copies matched by `scan.look`; opt-in
+  start-screen toggle, `scan --dupes`): copies only, no models; opt-in
   "Keep photo details" (`merge.py`): at Recycle time, details the keeper lacks go into a new `<file>.xmp` sidecar
   and it takes the oldest copy's mtime; a failed write puts that set's copies back; underexposed frames set aside
   ("Darker", relative to the brightest shot, checked on real dark bursts); macOS/Linux support (Trash via

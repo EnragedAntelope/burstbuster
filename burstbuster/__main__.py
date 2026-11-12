@@ -11,11 +11,12 @@ def main():
     sc.add_argument("folder")
     sc.add_argument("--no-subfolders", action="store_true")
     sc.add_argument("--level", choices=["identical", "pose", "one"], default="pose")
+    sc.add_argument("--dupes", action="store_true", help="copies only: no models, no burst picking (fast)")
     sc.add_argument("--report", help="write the JSON report here")
     a = ap.parse_args()
     if a.cmd == "scan":
         from .pipeline import analyze
-        rep = analyze(a.folder, not a.no_subfolders, a.level,
+        rep = analyze(a.folder, not a.no_subfolders, a.level, mode="dupes" if a.dupes else "bursts",
                       progress=lambda st, d, t: print(f"\r{st} {d}/{t}   ", end="", file=sys.stderr))
         print(file=sys.stderr)
         if a.report:
@@ -24,8 +25,9 @@ def main():
         for g in rep["groups"]:
             print(f"\n[{g['type']} {g['id']}] {g['confidence']} {' '.join(g['flags'])}")
             for s in sorted(g["shots"], key=lambda s: s["id"]):
-                print(f"  {'KEEP ' if s['keep'] else 'aside'} m{s['moment']} {s['id']}  sharp={s['metrics']['sharp']}"
-                      f"  smile={s['metrics']['smile']}  | {'; '.join(s['reasons'])}")
+                m = s["metrics"] or {}
+                print(f"  {'KEEP ' if s['keep'] else 'aside'} m{s['moment']} {s['id']}  sharp={m.get('sharp')}"
+                      f"  smile={m.get('smile')}  | {'; '.join(s['reasons'])}")
         st = rep["stats"]
         print(f"\n{rep['photos']} photos, {st['groups']} groups, {st['set_aside']} set aside "
               f"({st['bytes'] / 1e6:.0f} MB), {len(rep['errors'])} unreadable, {rep['seconds']} s")

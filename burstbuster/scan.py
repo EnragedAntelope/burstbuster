@@ -120,6 +120,9 @@ def read_exif(path):
             out["dims"] = im.size  # stored pixels (before EXIF rotation); header only, no decode
             e = im.getexif()
             ex = e.get_ifd(0x8769)
+            # how much a copy carries: used to keep the best-described of identical pictures
+            out["tags"] = len(e) + len(ex) + len(e.get_ifd(0x8825)) + bool(im.info.get("xmp"))
+            out["orient"] = e.get(274, 1)
     except Exception:
         return out
     dt = ex.get(36867) or e.get(306)
@@ -184,3 +187,89 @@ def exact_duplicates(shots):
             by_hash.setdefault(file_hash(s.primary), []).append(s)
         groups += [g for g in by_hash.values() if len(g) > 1]
     return groups
+
+
+def pixel_hash(path):
+    """Hash of the picture data only, skipping metadata, or None. A rating, tag or date written into a copy
+    (Explorer, Lightroom, exiftool) changes the file but not this. Re-encoding changes it.
+    JPEG and PNG are read without decoding; HEIC is decoded (slower, so only same size and time are compared).
+    shortcut: RAW returns None, add if edited RAW copies show up."""
+    h = hashlib.sha256()
+    if Path(path).suffix.lower() in {".heic", ".heif"}:
+        try:
+            with Image.open(path) as im:
+                h.update(f"{im.mode} {im.size}".encode())
+                h.update(im.tobytes())
+            return h.hexdigest()
+        except Exception:
+            return None
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    if data[:2] == b"\xff\xd8":
+        i = 2
+        while i + 4 <= len(data):
+            if data[i] != 0xFF:
+                return None
+            m = data[i + 1]
+            if m == 0xFF:  # fill byte
+                i += 1
+                continue
+            if m == 0xDA:  # start of scan: the rest is picture data
+                h.update(data[i:])
+                return h.hexdigest()
+            end = i + 2 + int.from_bytes(data[i + 2:i + 4], "big")
+            if not (0xE0 <= m <= 0xEF or m == 0xFE):  # keep tables, drop APPn (EXIF, XMP, ICC) and comments
+                h.update(data[i:end])
+            i = end
+        return None
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        i = 8
+        while i + 8 <= len(data):
+            n = int.from_bytes(data[i:i + 4], "big")
+            typ = data[i + 4:i + 8]
+            if typ[:1].isupper():  # critical chunks (IHDR, PLTE, IDAT, IEND); text and EXIF chunks are ancillary
+                h.update(data[i + 4:i + 8 + n])
+            i += 12 + n
+        return h.hexdigest()
+    return None
+
+
+def same_pixels(shots):
+    """Groups of shots that are the same picture with different metadata (see pixel_hash). Only shots sharing
+    stored size and capture time are read, so this stays cheap on a large library."""
+    by_key = {}
+    for s in shots:
+        if s.exif.get("dims"):
+            by_key.setdefault((s.exif["dims"], s.time), []).append(s)
+    groups = []
+    for same in by_key.values():
+        if len(same) < 2:
+            continue
+        by_hash = {}
+        for s in same:
+            h = pixel_hash(s.primary)
+            if h:  # a different rotation tag shows a different picture, so it is part of the key
+                by_hash.setdefault((h, s.exif.get("orient", 1)), []).append(s)
+        groups += [g for g in by_hash.values() if len(g) > 1]
+    return groups
+
+
+def look(path):
+    """Tiny grey thumbnail as a unit vector, for telling a smaller save of a photo from a different photo
+    without the models. Cosine with the original is about 1.0 for a resize; a zero vector if unreadable."""
+    import numpy as np
+    from PIL import ImageOps
+    try:
+        with Image.open(path) as im:
+            if im.format == "JPEG":
+                im.draft("L", (64, 64))
+            a = np.asarray(ImageOps.exif_transpose(im).convert("L").resize((16, 16), Image.Resampling.BOX),
+                           np.float32).ravel()
+    except Exception:
+        return [0.0] * 256
+    a -= a.mean()
+    n = float(np.linalg.norm(a))
+    return (a / n).tolist() if n else a.tolist()

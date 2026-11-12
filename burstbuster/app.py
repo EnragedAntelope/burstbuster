@@ -13,7 +13,7 @@ from pathlib import Path
 import webview
 from PIL import Image, ImageOps
 
-from . import APP_DIR, fileops, vlm
+from . import APP_DIR, fileops, merge, vlm
 from .scan import IMAGE_EXT
 
 UI = Path(__file__).resolve().parent / "ui"
@@ -124,7 +124,8 @@ class Api:
                 self._prog.update(stage=stage, done=done, total=total)
             ai = {"url": opts["ai_url"], "model": opts["ai_model"]} if opts.get("ai") and opts.get("ai_model") else None
             rep = analyze(opts["folder"], opts.get("recursive", True), opts.get("level", "pose"),
-                          progress=progress, cancelled=lambda: self._cancel, log=lambda m: progress(m, 0, 0), ai=ai)
+                          progress=progress, cancelled=lambda: self._cancel, log=lambda m: progress(m, 0, 0), ai=ai,
+                          mode=opts.get("mode", "bursts"))
             if rep is None:
                 self._prog.update(running=False, stage="Cancelled - nothing was moved.")
                 return
@@ -139,6 +140,7 @@ class Api:
                     if s["id"] in blocked:
                         s.update(keep=True, blocked=blocked[s["id"]])
             rep["run"] = run
+            rep["merge"] = bool(opts.get("merge"))
             rep["recycle"], rep["recycle_why"] = fileops.recycle_supported(rep["root"])
             rep["holding"] = fileops.holding_dir(rep["root"], run)
             with self._lock:
@@ -211,7 +213,7 @@ class Api:
             if s.get("recycled"):
                 return {"ok": False, "why": "Already in the Recycle Bin - restore it from there."}
             if not keep and not force and sum(x["keep"] for x in g["shots"]) <= 1 and s["keep"]:
-                return {"ok": False, "confirm": "That would set aside every photo in this burst. Are you sure?"}
+                return {"ok": False, "confirm": "That would set aside every photo in this set. Are you sure?"}
             if keep and s["held"]:
                 r = fileops.restore(self._run, [sid])
                 if sid not in r["restored"]:
@@ -267,9 +269,47 @@ class Api:
             self._persist()
             return {"ok": True, "skipped": len(skipped)}
 
+    def _carry_over(self):
+        """Before recycling copies: carry their photo details over to the kept copy (merge.apply). A set whose
+        details could not be written gets its copies moved back, so no detail is lost."""
+        failed = []
+        for g in self._report["groups"]:
+            held = [s for s in g["shots"] if s.get("held")]
+            kept = [s for s in g["shots"] if s["keep"] and not s.get("held") and not s.get("recycled")]
+            if g["type"] != "duplicate" or not held or not kept:
+                continue
+            k = next((s for s in kept if s["id"] == g["top"]), kept[0])
+            copies = [(fileops.path_for(self._run, s["id"]), [fileops.path_for(self._run, p) for p in s["files"]],
+                       min(mt for _, _, mt in s["stat"])) for s in held]
+            try:
+                r = merge.apply(k["id"], k["files"], copies)
+            except OSError as e:
+                failed += [s["id"] for s in held]
+                g["flags"].append(f"Photo details not carried over ({e.strerror or type(e).__name__}); copies kept")
+                continue
+            if r["mtime"]:
+                for row in k["stat"]:
+                    if row[0] == k["id"]:
+                        row[2] = r["mtime"]
+            if r["sidecar"]:  # a companion from now on: it moves with the photo
+                st = os.stat(r["sidecar"])
+                k["files"].append(r["sidecar"])
+                k["stat"].append([r["sidecar"], st.st_size, st.st_mtime_ns])
+                k["reasons"].append("Photo details from its copies saved in " + os.path.basename(r["sidecar"]))
+            k["reasons"] += merge.describe({}, r["conflicts"], r["differs"])
+        if failed:
+            res = fileops.restore(self._run, failed)
+            for g in self._report["groups"]:
+                for s in g["shots"]:
+                    if s["id"] in res["restored"]:
+                        s.update(held=False, keep=True)
+        return len(failed)
+
     def accept_all(self):
         with self._lock:
+            kept_back = self._carry_over() if self._report.get("merge") else 0
             r = fileops.recycle(self._run)
+            r["kept_back"] = kept_back
             held = set(fileops.run_shots(self._run))
             for g in self._report["groups"]:
                 for s in g["shots"]:

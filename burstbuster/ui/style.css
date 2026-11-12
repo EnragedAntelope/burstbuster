@@ -47,6 +47,7 @@ input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
 @media (prefers-color-scheme: dark) { .btn.primary { color: #0d1f14; } }
 
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.seg.two { grid-template-columns: repeat(2, 1fr); }
 .seg label { cursor: pointer; }
 .seg input { position: absolute; opacity: 0; }
 .seg span { display: block; text-align: center; border: 1px solid var(--line); border-radius: 8px; padding: 10px 6px; }

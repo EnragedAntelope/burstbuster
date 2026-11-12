@@ -5,9 +5,10 @@ import os
 import re
 import sqlite3
 import time
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from . import APP_DIR, features, group, models, pick, scan
+from . import APP_DIR, features, group, merge, models, pick, scan
 
 FEATURE_VERSION = 4  # bump when measure() output changes, to invalidate the cache
 
@@ -58,9 +59,10 @@ def _worker_count():
     return max(1, min((os.cpu_count() or 2) // 2, 8))
 
 
-def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, log=print, ai=None):
+def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, log=print, ai=None, mode="bursts"):
     """Return the report dict. progress(stage, done, total); cancelled() -> bool.
-    ai: optional {"url", "model"} of a local vision model, consulted only on close calls."""
+    ai: optional {"url", "model"} of a local vision model, consulted only on close calls.
+    mode "dupes": copies only, without the models or burst picking (much faster)."""
     progress = progress or (lambda *a: None)
     cancelled = cancelled or (lambda: False)
     t0 = time.time()
@@ -68,6 +70,103 @@ def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, l
     progress("Finding photos", 0, 0)
     shots, skipped_cloud = scan.inventory(root, recursive)
 
+    feats, errors = ({}, []) if mode == "dupes" else _measure_all(shots, progress, cancelled, log)
+    if feats is None:
+        return None
+    if mode != "dupes":
+        shots = [s for s in shots if s.id in feats]  # unreadable files are never suggested for removal
+    photos = len(shots)
+    progress("Comparing copies" if mode == "dupes" else "Choosing the best", 0, 0)
+    groups = []
+
+    # Copies first, surest kind first; only the kept copy goes on to the next step.
+    for g in scan.exact_duplicates(shots):
+        _add_copies(groups, sorted(g, key=_copy_rank), feats, lambda k, s: f"Exact copy of {_rel(k, root)}")
+    shots = _not_aside(shots, groups)
+    if cancelled():
+        return None
+    for g in scan.same_pixels(shots):
+        _add_copies(groups, sorted(g, key=_copy_rank), feats, lambda k, s: f"Same picture as {_rel(k, root)}, "
+                    + ("fewer photo details" if s.exif.get("tags", 0) < k.exif.get("tags", 0)
+                       else "different photo details"))
+    shots = _not_aside(shots, groups)
+
+    # Smaller saves of the same capture: the picker would judge them on blur and smile, and could keep one.
+    looks = feats
+    if mode == "dupes":  # no embeddings: compare tiny thumbnails, only where shots share a capture time
+        n = Counter((s.camera, s.time) for s in shots if s.time is not None and s.exif.get("dims"))
+        looks = {s.id: {"emb": scan.look(s.primary)} for s in shots if n[(s.camera, s.time)] > 1}
+    for g in group.resized_copies(shots, looks):
+        _add_copies(groups, g, feats, lambda k, s: f"Smaller copy ({_dims(s)}) of {_rel(k, root)}",
+                    f"Full-size original ({_dims(g[0])})")
+    shots = _not_aside(shots, groups)
+
+    pending_ai = []
+    for b in group.bursts(shots, feats) if mode != "dupes" else []:
+        r, g = burst_group(b, feats, level)
+        groups.append(g)
+        pending_ai += [(g, ids) for ids in r["close_sets"]]
+
+    if ai and pending_ai:
+        from . import vlm
+        for i, (g, ids) in enumerate(pending_ai):
+            if cancelled():
+                return None
+            progress("Asking the AI about close calls", i, len(pending_ai))
+            labels = "ABC"[:len(ids)]
+            try:
+                cands = [(lab, features.load_image(sid), (feats[sid]["faces"] or [{}])[0].get("box"))
+                         for lab, sid in zip(labels, ids)]
+                best, reason = vlm.choose(ai["url"], ai["model"], cands)
+                pick.apply_ai_choice(g["shots"], ids, ids[labels.index(best)], reason)
+            except Exception as e:  # the metric pick stands; tell the user why the AI didn't weigh in
+                g["flags"].append(f"AI second opinion unavailable ({type(e).__name__})")
+    for i, g in enumerate(groups):
+        g["id"] = i
+        if g["type"] == "duplicate":  # what "keep photo details" would carry over, shown in the review
+            k = next(s for s in g["shots"] if s["id"] == g["top"])
+            g["carry"] = merge.describe(*merge.plan(merge.details(k["id"], k["files"]),
+                                                    [merge.details(s["id"], s["files"]) for s in g["shots"] if s is not k]))
+    groups.sort(key=lambda g: (g["confidence"] != "close", g["type"] != "burst", g["id"]))
+
+    aside = [s for g in groups for s in g["shots"] if not s["keep"]]
+    return {
+        "root": root, "recursive": recursive, "level": level, "mode": mode,
+        "created": time.strftime("%Y-%m-%d %H:%M:%S"), "seconds": round(time.time() - t0, 1),
+        "photos": photos, "groups": groups, "errors": errors,
+        "skipped_cloud": skipped_cloud,
+        "stats": {"groups": len(groups), "set_aside": len(aside), "bytes": sum(s["size"] for s in aside)},
+    }
+
+
+def _add_copies(groups, g, feats, why, keep_reason=None):
+    """Add a group for copies of one picture; g[0] is kept. An earlier group that shares a photo with this one
+    (its keeper is kept or set aside here) joins this one, so each photo appears in one group only."""
+    keep = g[0]
+    new = {"type": "duplicate", "confidence": "confident", "flags": [], "top": keep.id,
+           "shots": [_shot_out(keep, feats, True, [keep_reason or _keep_reason(keep, g[1])], 0, "pick")] +
+                    [_shot_out(s, feats, False, [why(keep, s)], 0, "duplicate") for s in g[1:]]}
+    ids = {s.id for s in g}
+    for old in [x for x in groups if x["top"] in ids]:
+        groups.remove(old)
+        if old["top"] == keep.id:
+            new["shots"][0]["reasons"][:0] = old["shots"][0]["reasons"]
+        new["shots"] += [s for s in old["shots"] if not s["keep"]]
+    groups.append(new)
+
+
+def _not_aside(shots, groups):
+    aside = {s["id"] for g in groups for s in g["shots"] if not s["keep"]}
+    return [s for s in shots if s.id not in aside]
+
+
+def _rel(s, root):
+    return os.path.relpath(s.primary, root)
+
+
+def _measure_all(shots, progress, cancelled, log):
+    """Model measurements for every shot, from the cache where unchanged. (feats, errors), or (None, None)
+    when cancelled."""
     db = _cache()
     feats, todo, errors = {}, [], []
     for s in shots:
@@ -91,7 +190,7 @@ def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, l
                 if cancelled():
                     ex.shutdown(cancel_futures=True)
                     db.commit()
-                    return None
+                    return None, None
                 path, data, err = fut.result()
                 if err:
                     errors.append({"path": path, "error": err})
@@ -103,83 +202,28 @@ def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, l
                 progress("Looking at photos", len(shots) - total + i, len(shots))
         db.commit()
     db.close()
-
-    shots = [s for s in shots if s.id in feats]  # unreadable files are never suggested for removal
-    progress("Choosing the best", 0, 0)
-    groups = []
-
-    # Byte-identical copies first; only the kept copy goes on to burst analysis.
-    dupe_ids = set()
-    for g in scan.exact_duplicates(shots):
-        g = sorted(g, key=_copy_rank)
-        keep = g[0]
-        groups.append({"type": "duplicate", "confidence": "confident", "flags": [], "top": keep.id,
-                       "shots": [_shot_out(keep, feats, True, [_keep_reason(keep, g[1])], 0, "pick")] +
-                                [_shot_out(s, feats, False, [f"Exact copy of {os.path.relpath(keep.primary, root)}"], 0,
-                                           "duplicate") for s in g[1:]]})
-        dupe_ids |= {s.id for s in g[1:]}
-    shots = [s for s in shots if s.id not in dupe_ids]
-
-    # Smaller saves of the same capture: the picker would judge them on blur and smile, and could keep one.
-    for g in group.resized_copies(shots, feats):
-        keep = g[0]
-        groups.append({"type": "duplicate", "confidence": "confident", "flags": [], "top": keep.id,
-                       "shots": [_shot_out(keep, feats, True, [f"Full-size original ({_dims(keep)})"], 0, "pick")] +
-                                [_shot_out(s, feats, False, [f"Smaller copy ({_dims(s)}) of "
-                                                             f"{os.path.relpath(keep.primary, root)}"], 0, "duplicate")
-                                 for s in g[1:]]})
-        dupe_ids |= {s.id for s in g[1:]}
-    shots = [s for s in shots if s.id not in dupe_ids]
-
-    pending_ai = []
-    for b in group.bursts(shots, feats):
-        r, g = burst_group(b, feats, level)
-        groups.append(g)
-        pending_ai += [(g, ids) for ids in r["close_sets"]]
-
-    if ai and pending_ai:
-        from . import vlm
-        for i, (g, ids) in enumerate(pending_ai):
-            if cancelled():
-                return None
-            progress("Asking the AI about close calls", i, len(pending_ai))
-            labels = "ABC"[:len(ids)]
-            try:
-                cands = [(lab, features.load_image(sid), (feats[sid]["faces"] or [{}])[0].get("box"))
-                         for lab, sid in zip(labels, ids)]
-                best, reason = vlm.choose(ai["url"], ai["model"], cands)
-                pick.apply_ai_choice(g["shots"], ids, ids[labels.index(best)], reason)
-            except Exception as e:  # the metric pick stands; tell the user why the AI didn't weigh in
-                g["flags"].append(f"AI second opinion unavailable ({type(e).__name__})")
-    for i, g in enumerate(groups):
-        g["id"] = i
-    groups.sort(key=lambda g: (g["confidence"] != "close", g["type"] != "burst", g["id"]))
-
-    aside = [s for g in groups for s in g["shots"] if not s["keep"]]
-    return {
-        "root": root, "recursive": recursive, "level": level, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "seconds": round(time.time() - t0, 1),
-        "photos": len(shots) + len(dupe_ids), "groups": groups, "errors": errors,
-        "skipped_cloud": skipped_cloud,
-        "stats": {"groups": len(groups), "set_aside": len(aside), "bytes": sum(s["size"] for s in aside)},
-    }
+    return feats, errors
 
 
 _COPY_NAME = re.compile(r"(copy( \d+)?|\(\d+\)|-\d)$", re.IGNORECASE)  # "x - Copy", "x copy 2", "x (1)", "x-1"
 
+# Which copy of one picture to keep, in order: the first rule that tells two copies apart decides.
+_KEEP_RULES = [
+    (lambda s: -len(s.files), "has its companion files"),
+    (lambda s: -s.exif.get("tags", 0), "more photo details: date, camera, place, rating"),
+    (lambda s: bool(_COPY_NAME.search(Path(s.primary).stem)), "the other name looks like a copy"),
+    (lambda s: len(s.primary), "shortest path"),
+    (lambda s: min(mt for _, _, mt in s.files), "oldest file"),
+]
+
 
 def _copy_rank(s):
-    """Which of byte-identical copies to keep: the one with sidecars / Live Photo video, then the one whose
-    name does not look like a copy, then the shortest path."""
-    return (-len(s.files), bool(_COPY_NAME.search(Path(s.primary).stem)), len(s.primary), s.primary)
+    return tuple(rule(s) for rule, _ in _KEEP_RULES) + (s.primary,)
 
 
 def _keep_reason(keep, runner_up):
-    if len(keep.files) > len(runner_up.files):
-        return "Original copy (has its companion files)"
-    if _copy_rank(keep)[1] < _copy_rank(runner_up)[1]:
-        return "Original copy (the other name looks like a copy)"
-    return "Original copy (shortest path)"
+    why = next((w for rule, w in _KEEP_RULES if rule(keep) != rule(runner_up)), "shortest path")
+    return f"Original copy ({why})"
 
 
 def _dims(s):
@@ -188,11 +232,14 @@ def _dims(s):
 
 
 def _shot_out(s, feats, keep, reasons, moment, role):
-    f = feats[s.id]
+    out = {"id": s.id, "files": [p for p, _, _ in s.files], "stat": [[p, sz, mt] for p, sz, mt in s.files],
+           "size": s.size, "time": s.time, "keep": keep, "reasons": reasons, "moment": moment, "role": role,
+           "dims": s.exif.get("dims"), "metrics": None, "face_box": None, "people": []}
+    f = feats.get(s.id)
+    if not f:  # copies-only scan: nothing measured
+        return out
     faces = f["faces"]
-    return {
-        "id": s.id, "files": [p for p, _, _ in s.files], "stat": [[p, sz, mt] for p, sz, mt in s.files],
-        "size": s.size, "time": s.time, "keep": keep, "reasons": reasons, "moment": moment, "role": role,
+    out.update({
         "metrics": {
             "sharp": round(f["sharp"], 1), "subject": f["subject_kind"], "faces": len(faces),
             "eyes_open": all(max(x["blink_l"], x["blink_r"]) <= features.EYE_CLOSED for x in faces) if faces else None,
@@ -201,4 +248,5 @@ def _shot_out(s, feats, keep, reasons, moment, role):
         },
         "face_box": faces[0]["box"] if faces else None, "img_w": f["w"], "img_h": f["h"],
         "people": [p["box"] for p in f.get("persons", [])],
-    }
+    })
+    return out

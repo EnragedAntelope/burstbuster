@@ -12,7 +12,7 @@
 <section id="start" class="screen">
   <header class="hero">
     <h1>BurstBuster</h1>
-    <p class="muted">Finds bursts and near-duplicate photos, keeps the best, and sets the rest aside for you to check.
+    <p class="muted">Finds bursts and duplicate photos, keeps the best, and sets the rest aside for you to check.
       Nothing leaves this computer, and nothing is deleted until you say so.</p>
   </header>
 
@@ -20,6 +20,14 @@
   <div id="problems" class="banner warn" hidden></div>
 
   <div class="card form">
+    <fieldset class="field">
+      <legend class="label">What to look for</legend>
+      <div class="seg two" role="radiogroup">
+        <label title="Keep the best shot of each burst, and tidy up copies too."><input type="radio" name="mode" value="bursts" checked><span>BurstBuster<small>bursts and copies</small></span></label>
+        <label title="Only copies of the same picture: exact copies, the same picture with different photo details, and smaller saves. No AI models, much faster."><input type="radio" name="mode" value="dupes"><span>DupeDestroyer<small>copies only, fast</small></span></label>
+      </div>
+    </fieldset>
+
     <label class="field">
       <span class="label">Folder <span class="hint">- choose one, or drag it onto this window</span></span>
       <span class="row">
@@ -33,7 +41,12 @@
       <input id="recursive" type="checkbox" checked> Include subfolders
     </label>
 
-    <fieldset class="field">
+    <label class="check">
+      <input id="merge" type="checkbox"> Keep photo details from copies that are removed
+      <span class="help" tabindex="0" data-tip="When you send copies to the Recycle Bin, details the kept copy is missing (date taken, camera, place, rating, keywords, title, caption) are saved in a new sidecar file next to it (IMG_1.jpg.xmp, read by digiKam, darktable and similar apps), and it takes the oldest copy's file date. The photo itself is never edited, and an existing sidecar is never changed. Details the copies disagree on are left out.">?</span>
+    </label>
+
+    <fieldset class="field burst-only">
       <legend class="label">How much to keep <span class="help" tabindex="0" data-tip="Within one burst, how different two photos must be before both are kept.">?</span></legend>
       <div class="seg" role="radiogroup">
         <label title="Only set aside photos that are basically the same shot and clearly worse. Safest."><input type="radio" name="level" value="identical"><span>Keep most<small>near-identical only</small></span></label>
@@ -42,7 +55,7 @@
       </div>
     </fieldset>
 
-    <div class="field">
+    <div class="field burst-only">
       <label class="check">
         <input id="ai" type="checkbox"> AI second opinion on close calls
         <span class="help" tabindex="0" data-tip="When two photos are equally sharp with eyes open, a vision AI running on this computer (LM Studio, Ollama or llama.cpp) picks the nicer expression. Photos are only sent to this computer or your home network. Optional; the app works fine without it.">?</span>
@@ -129,6 +142,8 @@
       <li>With several people in the photos, the app follows the one who appears most (outlined). Press <b>Focus on a person</b> to choose someone else.</li>
       <li>The rest are moved to the holding folder. Nothing is deleted until you press the green button, and then only to the Recycle Bin.</li>
       <li><b>Close calls</b> are shown first: there the photos were very similar and you may prefer another.</li>
+      <li><b>Copies</b> of one picture keep a single photo: the full-size one, then the one with its companion
+        files, then the one with the most photo details (date, camera, place, rating), then a name without "copy".</li>
     </ul>
     <h3>Keys</h3>
     <p><kbd>Left</kbd>/<kbd>Right</kbd> move between photos, <kbd>Up</kbd>/<kbd>Down</kbd> between bursts, <kbd>K</kbd> keep,

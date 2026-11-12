@@ -131,6 +131,7 @@ Built on [MediaPipe](https://ai.google.dev/edge/mediapipe) (face, pose and objec
 [DINOv2](https://github.com/facebookresearch/dinov2) (image similarity), both Apache 2.0, plus
 [pywebview](https://pywebview.flowrl.com/), Pillow, pillow-heif, rawpy, NumPy and ONNX Runtime.
 The people and places in the screenshots are AI-generated, not real photos.
+
 Thanks to [rtomephotography.com](https://rtomephotography.com/) for providing helpful dark test samples.
 
 ## License

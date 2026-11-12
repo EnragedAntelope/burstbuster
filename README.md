@@ -1,7 +1,8 @@
 # BurstBuster
 
 **Fired off 20 shots to get one good one? BurstBuster keeps the best shot of every moment and sets the rest
-aside, with a plain-English reason for every choice.** Free, private, and fast on an ordinary computer:
+aside, with a plain-English reason for every choice. Its DupeDestroyer mode clears out duplicate copies,
+keeping the best one.** Free, private, and fast on an ordinary computer:
 Windows, Mac or Linux.
 
 [![Tests](https://github.com/EnragedAntelope/burstbuster/actions/workflows/tests.yml/badge.svg)](https://github.com/EnragedAntelope/burstbuster/actions/workflows/tests.yml)
@@ -39,7 +40,7 @@ Mac needs Apple Silicon (M1 or newer); Intel Macs are not supported by MediaPipe
 
 ## How to use it
 
-![Start screen: choose a folder and how much to keep](docs/start.png)
+![Start screen: BurstBuster or DupeDestroyer, a folder, and how much to keep](docs/start.png)
 
 1. Pick **BurstBuster** (bursts and copies) or **DupeDestroyer** (copies only: no AI models, so it is much
    faster and the options below are hidden). From the command line, `scan --dupes` does the same.

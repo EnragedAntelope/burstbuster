@@ -258,18 +258,21 @@ def same_pixels(shots):
 
 
 def look(path):
-    """Tiny grey thumbnail as a unit vector, for telling a smaller save of a photo from a different photo
-    without the models. Cosine with the original is about 1.0 for a resize; a zero vector if unreadable."""
+    """Tiny thumbnail (brightness pattern plus colour) as a unit vector, for telling a smaller save of a photo
+    from a different photo without the models. Cosine with the original is about 1.0 for a resize and well
+    below 0.97 for a black-and-white or recoloured edit; a zero vector if unreadable."""
     import numpy as np
     from PIL import ImageOps
     try:
         with Image.open(path) as im:
             if im.format == "JPEG":
-                im.draft("L", (64, 64))
-            a = np.asarray(ImageOps.exif_transpose(im).convert("L").resize((16, 16), Image.Resampling.BOX),
-                           np.float32).ravel()
+                im.draft("YCbCr", (64, 64))
+            t = np.asarray(ImageOps.exif_transpose(im).convert("YCbCr").resize((16, 16), Image.Resampling.BOX),
+                           np.float32)
     except Exception:
-        return [0.0] * 256
-    a -= a.mean()
+        return [0.0] * 768
+    y = t[..., 0].ravel()
+    # brightness is centred (exposure edits still match); colour is not, so a grey edit has none
+    a = np.concatenate([y - y.mean(), (t[..., 1:] - 128).ravel()])
     n = float(np.linalg.norm(a))
     return (a / n).tolist() if n else a.tolist()

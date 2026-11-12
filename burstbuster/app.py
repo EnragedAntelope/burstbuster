@@ -296,8 +296,7 @@ class Api:
                 k["files"].append(r["sidecar"])
                 k["stat"].append([r["sidecar"], st.st_size, st.st_mtime_ns])
                 k["reasons"].append("Photo details from its copies saved in " + os.path.basename(r["sidecar"]))
-            if r["conflicts"]:
-                k["reasons"] += merge.describe({}, r["conflicts"])
+            k["reasons"] += merge.describe({}, r["conflicts"], r["differs"])
         if failed:
             res = fileops.restore(self._run, failed)
             for g in self._report["groups"]:

@@ -90,8 +90,10 @@ It also tidies up copies:
   details the kept copy is missing (date taken, camera, place, rating, keywords, title, caption) are saved in a
   new sidecar file next to it, for example `IMG_1.jpg.xmp`, which digiKam, darktable and similar apps read
   (Windows Photos and Google Photos do not). The kept copy also takes the oldest copy's file date. The photo
-  itself is never edited and an existing sidecar is never changed. Details the copies disagree on are left out
-  and listed on the kept photo. If a sidecar can't be written, that set's copies are put back instead of recycled.
+  itself is never edited and an existing sidecar is never changed. Only blank details are filled in, and only
+  keywords the kept copy lacks are added (ignoring case and spacing). Details the copies disagree on are left
+  out, and a value a removed copy had that differs from the kept copy's is listed on the kept photo (the kept
+  copy's value stays). The same date or place written with different precision counts as the same. If a sidecar can't be written, that set's copies are put back instead of recycled.
 
 ## Speed and system use
 

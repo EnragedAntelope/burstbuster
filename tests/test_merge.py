@@ -37,10 +37,24 @@ def test_details_and_plan(tmp_path):
     a = merge.details(_jpeg(tmp_path / "a.jpg", gps=True, rating=5, keywords=("beach",)))
     b = merge.details(_jpeg(tmp_path / "b.jpg", rating=3, keywords=("family",)))
     assert a["gps"] == ("52,22.500000N", "4,54.000000E") and a["rating"] == "5" and a["keywords"] == ["beach"]
-    add, conflicts = merge.plan(keep, [a, b])
+    add, conflicts, differs = merge.plan(keep, [a, b])
     assert add == {"gps": ("52,22.500000N", "4,54.000000E"), "keywords": ["beach", "family"]}
     assert conflicts == ["rating"]  # 5 vs 3: left out, and said so
-    assert "date" not in add  # the kept copy already has it
+    assert "date" not in add and differs == []  # the kept copy already has the same date
+
+
+def test_plan_compares_details_not_spelling():
+    keep = {"keywords": ["Beach"], "rating": "3", "date": "2024-05-01T10:00:00"}
+    copies = [{"keywords": ["beach ", "Sun  set"], "rating": "5", "date": "2024-05-01T10:00:00.12+02:00",
+               "gps": ("52,22.5N", "4,54E"), "title": "Day out"},
+              {"keywords": ["sun set", "BEACH"], "rating": "5.0", "date": "2024:05:01 10:00:00",
+               "gps": ("52,22.500000N", "4,54.000000E"), "title": "Day  out"}]
+    add, conflicts, differs = merge.plan(keep, copies)
+    assert add["keywords"] == ["Beach", "Sun set"]  # no case or spacing duplicates, kept copy's spelling first
+    assert add["gps"] == ("52,22.500000N", "4,54.000000E") and add["title"] in ("Day out", "Day  out")
+    assert conflicts == []  # the same place, date and title, written differently
+    assert differs == [("rating", "5")]  # kept copy's 3 stays, and the removed copies' 5 is reported
+    assert "Removed copy had rating 5 (kept this one's)" in merge.describe(add, conflicts, differs)
 
 
 def test_apply_writes_a_sidecar_once_and_takes_the_oldest_date(tmp_path):

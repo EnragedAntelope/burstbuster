@@ -83,32 +83,76 @@ def details(primary, files=()):
     return {k: v for k, v in out.items() if v}
 
 
+def _gps_deg(v):
+    m = re.fullmatch(r"(\d+),(\d+(?:\.\d+)?)([NSEW])", v.strip())
+    if not m:
+        return v.strip()
+    d = int(m[1]) + float(m[2]) / 60
+    return round(-d if m[3] in "SW" else d, 5)  # ~1 m: the same place written with different precision
+
+
+def _norm(f, v):
+    """Comparison key: equal keys mean the same detail, however it was written."""
+    if f == "gps":
+        return tuple(_gps_deg(x) for x in v)
+    if f == "date":  # "2024-05-01T10:00:00.12+02:00" and "2024-05-01T10:00:00" are the same moment to the second
+        m = re.match(r"(\d{4})[-:](\d\d)[-:](\d\d)(?:[T ](\d\d):(\d\d)(?::(\d\d))?)?", v)
+        return m.groups(default="00") if m else v.strip()
+    if f == "rating":
+        try:
+            return round(float(v))
+        except ValueError:
+            return v.strip()
+    v = " ".join(str(v).split())
+    return v.casefold() if f in ("keywords", "make", "model") else v
+
+
+def _show(f, v):
+    return ", ".join(v) if f == "gps" else str(v)
+
+
 def plan(keeper, copies):
-    """(add, conflicts): details the kept copy lacks that the copies agree on; fields where they disagree."""
-    add, conflicts = {}, []
+    """(add, conflicts, differs). add: details the kept copy lacks that the copies agree on, plus keywords it
+    lacks (compared ignoring case and spacing). conflicts: blank fields the copies disagree on (left out).
+    differs: [(field, value)] where a removed copy has a different value than the kept copy (kept value stays)."""
+    add, conflicts, differs = {}, [], []
     for f in FIELDS:
         if f == "keywords":
-            extra = sorted(set().union(*(c.get(f, []) for c in copies)) - set(keeper.get(f, [])))
+            seen = {_norm(f, k) for k in keeper.get(f, [])}
+            extra = []
+            for k in (k for c in copies for k in c.get(f, [])):
+                if _norm(f, k) not in seen:
+                    seen.add(_norm(f, k))
+                    extra.append(" ".join(k.split()))
             if extra:
-                add[f] = sorted(set(keeper.get(f, [])) | set(extra))  # a sidecar wins over embedded keywords
+                add[f] = list(keeper.get(f, [])) + extra  # the sidecar lists all, as it may override embedded ones
             continue
+        vals = {}
+        for c in copies:
+            if c.get(f):  # equal details keep the longest spelling (the most precise date)
+                key = _norm(f, c[f])
+                vals[key] = str(key) if f == "rating" and isinstance(key, int) else \
+                    max(vals.get(key, c[f]), c[f], key=lambda x: len(_show(f, x)))
         if keeper.get(f):
-            continue
-        vals = {c[f] for c in copies if c.get(f)}
-        if len(vals) == 1:
-            add[f] = vals.pop()
+            differs += [(f, v) for k, v in vals.items() if k != _norm(f, keeper[f])]
+        elif len(vals) == 1:
+            add[f] = next(iter(vals.values()))
         elif vals:
             conflicts.append(f)
-    return add, conflicts
+    return add, conflicts, differs
 
 
-def describe(add, conflicts):
+def describe(add, conflicts, differs=()):
     names = list(dict.fromkeys(FIELDS[f] for f in add))
     out = []
     if names:
         out.append("Keeps from its copies: " + ", ".join(names))
     if conflicts:
         out.append("Not carried over: " + ", ".join(dict.fromkeys(_NAMES[f] for f in conflicts)))
+    for f in FIELDS:
+        vs = [_show(f, v) for g, v in differs if g == f]
+        if vs:
+            out.append(f"Removed {'copy' if len(vs) == 1 else 'copies'} had {FIELDS[f]} {'; '.join(vs)} (kept this one's)")
     return out
 
 
@@ -144,9 +188,10 @@ def write_sidecar(primary, add):
 
 def apply(keeper_primary, keeper_files, copies):
     """Carry details from `copies` ([(primary, files, mtime_ns)] at their current paths) to the kept file.
-    Returns {"sidecar": path|None, "mtime": new mtime_ns|None, "conflicts": [...]}. Raises OSError on failure."""
+    Returns {"sidecar": path|None, "mtime": new mtime_ns|None, "conflicts": [...], "differs": [...]} (see plan).
+    Raises OSError on failure."""
     kd = details(keeper_primary, keeper_files)
-    add, conflicts = plan(kd, [details(p, f) for p, f, _ in copies])
+    add, conflicts, differs = plan(kd, [details(p, f) for p, f, _ in copies])
     sidecar = None
     if add:
         if any(p.lower().endswith(".xmp") for p in keeper_files) or os.path.exists(sidecar_path(keeper_primary)):
@@ -159,4 +204,4 @@ def apply(keeper_primary, keeper_files, copies):
     if oldest < st.st_mtime_ns:
         os.utime(keeper_primary, ns=(st.st_atime_ns, oldest))
         mtime = oldest
-    return {"sidecar": sidecar, "mtime": mtime, "conflicts": conflicts}
+    return {"sidecar": sidecar, "mtime": mtime, "conflicts": conflicts, "differs": differs}

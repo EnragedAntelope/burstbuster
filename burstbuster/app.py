@@ -124,7 +124,8 @@ class Api:
                 self._prog.update(stage=stage, done=done, total=total)
             ai = {"url": opts["ai_url"], "model": opts["ai_model"]} if opts.get("ai") and opts.get("ai_model") else None
             rep = analyze(opts["folder"], opts.get("recursive", True), opts.get("level", "pose"),
-                          progress=progress, cancelled=lambda: self._cancel, log=lambda m: progress(m, 0, 0), ai=ai)
+                          progress=progress, cancelled=lambda: self._cancel, log=lambda m: progress(m, 0, 0), ai=ai,
+                          mode=opts.get("mode", "bursts"))
             if rep is None:
                 self._prog.update(running=False, stage="Cancelled - nothing was moved.")
                 return
@@ -211,7 +212,7 @@ class Api:
             if s.get("recycled"):
                 return {"ok": False, "why": "Already in the Recycle Bin - restore it from there."}
             if not keep and not force and sum(x["keep"] for x in g["shots"]) <= 1 and s["keep"]:
-                return {"ok": False, "confirm": "That would set aside every photo in this burst. Are you sure?"}
+                return {"ok": False, "confirm": "That would set aside every photo in this set. Are you sure?"}
             if keep and s["held"]:
                 r = fileops.restore(self._run, [sid])
                 if sid not in r["restored"]:

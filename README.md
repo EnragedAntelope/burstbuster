@@ -16,6 +16,8 @@ Windows, Mac or Linux.
 - **Explains every call.** "Eyes closed", "Blurrier: 28% as sharp as the best", "Darker: 45% as bright as the
   best", "Smaller copy of IMG_0120.JPG".
   Close calls go to the top so you can check them first.
+- **Clears out copies too.** Switch to **DupeDestroyer** for a fast copies-only pass: exact copies, the same
+  picture with different photo details, and smaller saves. The best-described, full-size copy is kept.
 - **Never loses a photo.** Nothing is deleted until you approve it, and then it goes to the Recycle Bin (the Trash
   on Mac and Linux). One click restores everything.
 - **Fast and light.** About 120 phone photos in 25 seconds on a desktop CPU, no graphics card needed, and a
@@ -39,11 +41,13 @@ Mac needs Apple Silicon (M1 or newer); Intel Macs are not supported by MediaPipe
 
 ![Start screen: choose a folder and how much to keep](docs/start.png)
 
-1. Choose a folder (or drag one onto the window), decide whether to include subfolders, and pick how much to keep:
+1. Pick **BurstBuster** (bursts and copies) or **DupeDestroyer** (copies only: no AI models, so it is much
+   faster and the options below are hidden). From the command line, `scan --dupes` does the same.
+   Choose a folder (or drag one onto the window), decide whether to include subfolders, and pick how much to keep:
    - **Keep most**: only sets aside photos that are basically the same shot and clearly worse.
    - **Best per moment** (recommended): keeps the best photo of each distinct pose or moment.
    - **One per burst**: keeps just the single best photo.
-2. Press **Find bursts**. The weaker shots move into a `_BurstBuster_Holding` folder inside the folder you chose.
+2. Press **Find bursts** (or **Find duplicates**). The weaker shots move into a `_BurstBuster_Holding` folder inside the folder you chose.
 3. Review. Click a photo (or press Space) to compare it side by side with the pick, including a face close-up.
    Press **Keep** on anything you want back; it moves back straight away.
    If a burst picked the wrong person, press **Focus on a person** and click the one you care about; the burst
@@ -74,10 +78,15 @@ When several people share the frame, each photo is judged on the person who appe
 It also tidies up copies:
 
 - Live Photo videos, RAW+JPEG pairs and sidecar files always move together with their photo.
-- Byte-identical copies anywhere in the folder are found. The copy kept is the one with its companion files, then
-  the one whose name does not end in "copy" or "(1)", then the shortest path.
+- Byte-identical copies anywhere in the folder are found.
+- So is the same picture with different photo details: a copy where a rating, tag or date was written into the
+  file (Explorer, Lightroom, exiftool) but the picture itself was not re-saved. JPEG and PNG only.
 - Smaller saves of the same photo (same camera and capture time, same shape, for example an export or a shared
   copy) are found too, and the full-size one is kept.
+- Among copies of one picture, the one kept is the first that wins on: companion files (Live Photo, RAW, sidecar),
+  then more photo details (date, camera, place, rating), then a name that does not end in "copy" or "(1)", then
+  the shortest path, then the oldest file. The reason is shown on the kept photo. Nothing is written into the kept
+  file; details are not merged across copies.
 
 ## Speed and system use
 

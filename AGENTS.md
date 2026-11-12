@@ -6,7 +6,7 @@ approval. User-facing usage lives in README.md; this file is for working on the 
 
 ## Current state
 
-_Last verified: 2026-11-11_
+_Last verified: 2026-11-12_
 
 - **Status:** main is v1.0.2 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
   pytest on Windows, Ubuntu and macOS x Python 3.11-3.14 (`.github/workflows/tests.yml`).
@@ -15,7 +15,9 @@ _Last verified: 2026-11-11_
   compare and keyboard, done); optional local-only VLM second opinion (tested with LM Studio); following one
   person through a multi-person burst (automatic, plus a "Focus on a person" click override in review);
   smaller saves of one capture (exports, shared copies) set aside before burst picking, full size kept;
-  exact copies keep the one with companion files, then a non-"copy" name; underexposed frames set aside
+  exact copies keep the one with companion files, then more EXIF/XMP, then a non-"copy" name; same picture with
+  edited metadata (JPEG/PNG `scan.pixel_hash`) grouped as copies; DupeDestroyer mode (`mode="dupes"`, start-screen
+  toggle, `scan --dupes`): copies only, no models, resized copies matched by `scan.look`; underexposed frames set aside
   ("Darker", relative to the brightest shot, checked on real dark bursts); macOS/Linux support (Trash via
   send2trash, Qt webview on Linux, `start.sh`). Linux checked in WSL Ubuntu: CLI scan with models, window
 opens with a working bridge, set-aside then Trash on dummy files. macOS: CI tests only.
@@ -24,6 +26,8 @@ opens with a working bridge, set-aside then Trash on dummy files. macOS: CI test
   - Run the app for real on macOS, and click through a full run on a Linux desktop (WSL checks only so far).
   - Verify the HEIC fix on a real iPhone HEIC (only a generated one was tested).
   - Match copies whose EXIF was stripped (messaging apps) to their original by look alone.
+  - DupeDestroyer: merge metadata across copies (XMP sidecar on the keeper, oldest date), HEIC pixel matching,
+    re-take `docs/start.png` (start screen now has the mode toggle), try it on a real library.
   - Live-window click-through, real drag-and-drop, and a log file for `pythonw` startup crashes (see gaps).
 - **Known gaps:** the review screen has been used in the live window; a full live run through to the Recycle
   Bin is (unknown - confirm before relying on this); the Recycle Bin call itself is verified on a dummy file.
@@ -61,6 +65,7 @@ START.bat                                   # first run: venv + install + models
 ./start.sh                                  # same on macOS/Linux (use .venv/bin/python below there)
 .venv\Scripts\python -m burstbuster         # open the app
 .venv\Scripts\python -m burstbuster scan <folder> --report out.json   # read-only
+.venv\Scripts\python -m burstbuster scan <folder> --dupes             # copies only, no models
 .venv\Scripts\python -m pytest tests -q     # synthetic tests only
 .venv\Scripts\python tools\eval.py [--level pose|one|identical]       # scores testset/ against labels.json
 ```
@@ -80,7 +85,8 @@ Python 3.11+ venv in `.venv` (onnxruntime, Pillow and rawpy set the floor). Mode
 - `pick.py` - filter (hard gates) then rank, with reasons; marks close calls for the VLM. With several
   people, `tracks()` follows each person frame to frame (person-crop embedding) and `subject()` picks whose
   face/body every shot is judged on. Any shot passing the sharpness gate competes on smile.
-- `pipeline.py` - orchestrates, caches features in `APP_DIR\cache.sqlite` (`%LOCALAPPDATA%\BurstBuster` on
+- `pipeline.py` - orchestrates (copies first: exact, same pixels, resized; then bursts unless `mode="dupes"`;
+  `_KEEP_RULES` is the ordered keep-a-copy rule list, `_add_copies` merges chained copy groups), caches features in `APP_DIR\cache.sqlite` (`%LOCALAPPDATA%\BurstBuster` on
   Windows, `~/Library/Application Support/BurstBuster` on macOS, `$XDG_DATA_HOME/BurstBuster` on Linux).
 - `fileops.py` - the only code that moves files: journal, set_aside, restore, recycle, reconcile.
 - `vlm.py` - OpenAI-compatible client; local/private hosts only, no redirects.

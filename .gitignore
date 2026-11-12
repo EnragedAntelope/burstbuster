@@ -1,0 +1,42 @@
+# Private material that must never leave this machine
+testset/
+burst-picking-and-catalog.md
+_BurstBuster_Holding/
+
+# Any photo or video file, in any case, anywhere (personal data)
+*.[jJ][pP][gG]
+*.[jJ][pP][eE][gG]
+*.[hH][eE][iI][cC]
+*.[hH][eE][iI][fF]
+*.[pP][nN][gG]
+*.[dD][nN][gG]
+*.[cC][rR]2
+*.[cC][rR]3
+*.[nN][eE][fF]
+*.[aA][rR][wW]
+*.[rR][aA][fF]
+*.[oO][rR][fF]
+*.[rR][wW]2
+*.[mM][oO][vV]
+*.[mM][pP]4
+*.[aA][aA][eE]
+*.[xX][mM][pP]
+*.[tT][iI][fF]
+*.[tT][iI][fF][fF]
+*.[wW][eE][bB][pP]
+# README screenshots only: generated demo images, no real photos
+!docs/*.png
+
+# Local state, models, caches
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+models/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+reports/
+*.backup-*
+.playwright-mcp/

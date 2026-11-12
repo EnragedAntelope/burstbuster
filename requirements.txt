@@ -1,0 +1,9 @@
+mediapipe>=1.2.2
+onnxruntime>=1.31
+numpy>=2.0
+pillow>=13.0
+pillow-heif>=1.8
+rawpy>=0.28
+pywebview>=6.2
+pywin32>=312; sys_platform == "win32"
+# mediapipe pulls in opencv-contrib-python; do not add another OpenCV package (they clash)

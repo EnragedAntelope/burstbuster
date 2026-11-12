@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>BurstBuster</title>
+<style>/*STYLE*/</style>
+</head>
+<body>
+
+<!-- START -->
+<section id="start" class="screen">
+  <header class="hero">
+    <h1>BurstBuster</h1>
+    <p class="muted">Finds bursts and near-duplicate photos, keeps the best, and sets the rest aside for you to check.
+      Nothing leaves this computer, and nothing is deleted until you say so.</p>
+  </header>
+
+  <div id="open-runs" class="banner" hidden></div>
+  <div id="problems" class="banner warn" hidden></div>
+
+  <div class="card form">
+    <label class="field">
+      <span class="label">Folder <span class="hint">- choose one, or drag it onto this window</span></span>
+      <span class="row">
+        <input id="folder" type="text" placeholder="C:\Users\you\Pictures\2026" spellcheck="false" aria-label="Folder to scan">
+        <button id="browse" class="btn">Choose folder...</button>
+      </span>
+      <span id="folder-note" class="hint"></span>
+    </label>
+
+    <label class="check" title="Also look inside every folder within this one. Linked folders and cloud-only files are skipped.">
+      <input id="recursive" type="checkbox" checked> Include subfolders
+    </label>
+
+    <fieldset class="field">
+      <legend class="label">How much to keep <span class="help" tabindex="0" data-tip="Within one burst, how different two photos must be before both are kept.">?</span></legend>
+      <div class="seg" role="radiogroup">
+        <label title="Only set aside photos that are basically the same shot and clearly worse. Safest."><input type="radio" name="level" value="identical"><span>Keep most<small>near-identical only</small></span></label>
+        <label title="Keep the best photo of each distinct pose or moment. Recommended."><input type="radio" name="level" value="pose" checked><span>Best per moment<small>recommended</small></span></label>
+        <label title="Keep just one photo per burst, the overall best."><input type="radio" name="level" value="one"><span>One per burst<small>most cleanup</small></span></label>
+      </div>
+    </fieldset>
+
+    <div class="field">
+      <label class="check">
+        <input id="ai" type="checkbox"> AI second opinion on close calls
+        <span class="help" tabindex="0" data-tip="When two photos are equally sharp with eyes open, a vision AI running on this computer (LM Studio, Ollama or llama.cpp) picks the nicer expression. Photos are only sent to this computer or your home network. Optional; the app works fine without it.">?</span>
+      </label>
+      <div id="ai-box" class="sub" hidden>
+        <span id="ai-status" class="hint">Looking for a local AI server...</span>
+        <span class="row">
+          <select id="ai-model" aria-label="AI model"></select>
+          <button id="ai-retry" class="btn small" title="Look again, e.g. after starting LM Studio">Look again</button>
+        </span>
+        <details>
+          <summary class="hint">Use a different server</summary>
+          <span class="row"><input id="ai-url" type="text" placeholder="http://127.0.0.1:1234/v1" spellcheck="false" aria-label="AI server address">
+          <button id="ai-check" class="btn small">Check</button></span>
+        </details>
+      </div>
+    </div>
+
+    <button id="scan" class="btn primary big" disabled>Find bursts</button>
+    <p class="hint">Scanning only reads your photos. Afterwards the weaker shots are moved to a
+      <code>_BurstBuster_Holding</code> folder inside the folder you chose, so you can review them.</p>
+  </div>
+  <footer class="foot"><button id="clear-cache" class="link" title="Forget saved measurements so every photo is looked at again next time.">Clear saved measurements</button></footer>
+</section>
+
+<!-- PROGRESS -->
+<section id="progress" class="screen" hidden>
+  <div class="card center">
+    <h2 id="p-stage">Starting</h2>
+    <div class="bar"><div id="p-bar"></div></div>
+    <p id="p-count" class="muted"></p>
+    <button id="cancel" class="btn">Cancel</button>
+    <p class="hint">Safe to cancel at any time. Nothing is moved until the scan finishes.</p>
+  </div>
+</section>
+
+<!-- REVIEW -->
+<section id="review" class="screen" hidden>
+  <div class="topbar">
+    <div>
+      <strong id="sum-main"></strong>
+      <div id="sum-sub" class="muted"></div>
+    </div>
+    <div class="actions">
+      <button id="restore-all" class="btn" title="Put every set-aside photo back where it was.">Restore all</button>
+      <button id="open-hold" class="btn" title="Open the holding folder in Explorer.">Open holding folder</button>
+      <button id="accept" class="btn primary" title="Send every set-aside photo to the Windows Recycle Bin. You can still restore them from the Recycle Bin.">Looks good: send set-aside photos to Recycle Bin</button>
+    </div>
+  </div>
+  <div id="notes"></div>
+  <div id="groups"></div>
+  <p class="hint center">Keys: arrows move, K keep, X set aside, Space compare, ? help</p>
+</section>
+
+<!-- DONE -->
+<section id="done" class="screen" hidden>
+  <div class="card center">
+    <h2 id="done-title">Done</h2>
+    <p id="done-text" class="muted"></p>
+    <button id="again" class="btn primary">Scan another folder</button>
+  </div>
+</section>
+
+<!-- overlays -->
+<div id="compare" class="overlay" hidden role="dialog" aria-label="Compare photos">
+  <div class="cmp">
+    <div class="cmp-col"><h3>Pick</h3><img id="c-a" alt=""><img id="c-af" class="face" alt=""><ul id="c-ar" class="chips"></ul></div>
+    <div class="cmp-col"><h3 id="c-bh">This photo</h3><img id="c-b" alt=""><img id="c-bf" class="face" alt=""><ul id="c-br" class="chips"></ul></div>
+  </div>
+  <div class="cmp-actions">
+    <button id="c-keep" class="btn">Keep this one too (K)</button>
+    <button id="c-aside" class="btn">Set aside (X)</button>
+    <button id="c-close" class="btn primary">Close (Esc)</button>
+  </div>
+</div>
+
+<div id="help" class="overlay" hidden role="dialog" aria-label="Help">
+  <div class="card">
+    <h2>How it works</h2>
+    <ul>
+      <li>Photos taken seconds apart that look alike form a <b>burst</b>.</li>
+      <li>Within a burst, photos are grouped into <b>moments</b> (same pose). The best photo of each moment is kept.</li>
+      <li>"Best" means: eyes open, face sharp enough, fewest blown-out highlights, then a bigger smile and facing the camera.</li>
+      <li>With several people in the photos, the app follows the one who appears most (outlined). Press <b>Focus on a person</b> to choose someone else.</li>
+      <li>The rest are moved to the holding folder. Nothing is deleted until you press the green button, and then only to the Recycle Bin.</li>
+      <li><b>Close calls</b> are shown first: there the photos were very similar and you may prefer another.</li>
+    </ul>
+    <h3>Keys</h3>
+    <p><kbd>Left</kbd>/<kbd>Right</kbd> move between photos, <kbd>Up</kbd>/<kbd>Down</kbd> between bursts, <kbd>K</kbd> keep,
+      <kbd>X</kbd> set aside, <kbd>Space</kbd> compare with the pick, <kbd>Esc</kbd> close, <kbd>?</kbd> this help.</p>
+    <button class="btn primary" data-close>Got it</button>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="tip" role="tooltip"></div>
+
+<script>/*SCRIPT*/</script>
+</body>
+</html>

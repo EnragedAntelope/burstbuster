@@ -33,3 +33,21 @@ def test_system_proxy_is_ignored(monkeypatch):
     finally:
         monkeypatch.delenv("HTTP_PROXY")
         importlib.reload(vlm)
+
+
+@pytest.mark.parametrize("text,best", [
+    ('{"best": "A", "reason": "bright smile with open eyes, making', "A"),  # cut off by the token limit
+    ('Sure! {"best": "B", "reason": "sharper"}', "B"),
+    ("I cannot tell", None)])
+def test_answer_parsing(monkeypatch, text, best):
+    import io
+    import json
+
+    import numpy as np
+    reply = json.dumps({"choices": [{"message": {"content": text}}]}).encode()
+    monkeypatch.setattr(vlm, "_open", lambda req, timeout: io.BytesIO(reply))
+    if best is None:
+        with pytest.raises(ValueError):
+            vlm.choose("http://127.0.0.1:1/v1", "m", [])
+    else:
+        assert vlm.choose("http://127.0.0.1:1/v1", "m", [(best, np.zeros((8, 8, 3), "uint8"), None)])[0] == best

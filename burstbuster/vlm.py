@@ -86,14 +86,22 @@ def choose(url, model, candidates, timeout=120):  # first call may wait for the 
             crop = rgb[int(max(y0 - p, 0)):int(y1 + p), int(max(x0 - p, 0)):int(x1 + p)]
             if crop.size:
                 content.append({"type": "image_url", "image_url": {"url": _jpeg_data_url(crop, 384)}})
-    body = json.dumps({"model": model, "temperature": 0, "max_tokens": 200,
+    # reasoning models spend hidden tokens before answering; 200 cut the JSON off mid-sentence
+    body = json.dumps({"model": model, "temperature": 0, "max_tokens": 2048,
                        "messages": [{"role": "user", "content": content}]}).encode()
     req = urllib.request.Request(url.rstrip("/") + "/chat/completions", data=body,
                                  headers={"Content-Type": "application/json"})
     with _open(req, timeout=timeout) as r:
         text = json.load(r)["choices"][0]["message"]["content"]
     m = re.search(r"\{.*\}", text or "", re.S)
-    ans = json.loads(m.group(0)) if m else {}
+    try:
+        ans = json.loads(m.group(0)) if m else {}
+    except ValueError:
+        ans = {}
+    if not ans:  # a cut-off answer still names its pick
+        b = re.search(r'"best"\s*:\s*"([^"]+)"', text or "")
+        r = re.search(r'"reason"\s*:\s*"([^"]*)', text or "")
+        ans = {"best": b.group(1), "reason": r.group(1) if r else ""} if b else {}
     best = str(ans.get("best", "")).strip().strip('"').upper()
     if best not in labels:
         raise ValueError(f"unclear answer from the model: {text[:80]!r}")

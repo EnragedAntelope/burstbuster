@@ -8,7 +8,7 @@ approval. User-facing usage lives in README.md; this file is for working on the 
 
 _Last verified: 2026-11-11_
 
-- **Status:** main is v1.0.0 (`burstbuster.__version__`), public on GitHub with a v1.0.0 release; CI runs
+- **Status:** main is v1.0.1 (`burstbuster.__version__`), public on GitHub (releases v1.0.0, v1.0.1); CI runs
   pytest on windows-latest (`.github/workflows/tests.yml`).
 - **Works:** read-only CLI scan; grouping and picking (eval passed on a private local test set at all three
   levels before release); journaled move / restore / recycle with tests; pywebview GUI (start, progress, review with

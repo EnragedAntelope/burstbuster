@@ -26,7 +26,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # never follow a redirect away from the local server
 
 
-_open = urllib.request.build_opener(_NoRedirect).open
+# no proxies: a system proxy setting would otherwise route photos off this network
+_open = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect).open
 
 
 def is_local(url):

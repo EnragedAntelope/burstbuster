@@ -1,6 +1,6 @@
 """BurstBuster: find photo bursts, keep the best, set the rest aside safely."""
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 import os
 from pathlib import Path

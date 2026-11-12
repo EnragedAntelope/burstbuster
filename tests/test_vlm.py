@@ -1,4 +1,6 @@
 """Photos may only ever be sent to this PC or the home network."""
+import urllib.request
+
 import pytest
 
 from burstbuster import vlm
@@ -19,3 +21,15 @@ def test_remote_refused(url):
 def test_choose_refuses_remote_before_sending():
     with pytest.raises(ValueError):
         vlm.choose("http://8.8.8.8/v1", "m", [])
+
+
+def test_system_proxy_is_ignored(monkeypatch):
+    """A proxy setting must not route photos off the local network."""
+    import importlib
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example.com:3128")
+    try:
+        mod = importlib.reload(vlm)  # the opener is built at import, so build it with the proxy set
+        assert not any(isinstance(h, urllib.request.ProxyHandler) for h in mod._open.__self__.handlers)
+    finally:
+        monkeypatch.delenv("HTTP_PROXY")
+        importlib.reload(vlm)

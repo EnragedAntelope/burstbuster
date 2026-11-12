@@ -80,13 +80,18 @@ It also tidies up copies:
 - Live Photo videos, RAW+JPEG pairs and sidecar files always move together with their photo.
 - Byte-identical copies anywhere in the folder are found.
 - So is the same picture with different photo details: a copy where a rating, tag or date was written into the
-  file (Explorer, Lightroom, exiftool) but the picture itself was not re-saved. JPEG and PNG only.
+  file (Explorer, Lightroom, exiftool) but the picture itself was not re-saved. JPEG, PNG and HEIC.
 - Smaller saves of the same photo (same camera and capture time, same shape, for example an export or a shared
   copy) are found too, and the full-size one is kept.
 - Among copies of one picture, the one kept is the first that wins on: companion files (Live Photo, RAW, sidecar),
   then more photo details (date, camera, place, rating), then a name that does not end in "copy" or "(1)", then
-  the shortest path, then the oldest file. The reason is shown on the kept photo. Nothing is written into the kept
-  file; details are not merged across copies.
+  the shortest path, then the oldest file. The reason is shown on the kept photo.
+- **Keep photo details from copies that are removed** (off by default): when you send copies to the Recycle Bin,
+  details the kept copy is missing (date taken, camera, place, rating, keywords, title, caption) are saved in a
+  new sidecar file next to it, for example `IMG_1.jpg.xmp`, which digiKam, darktable and similar apps read
+  (Windows Photos and Google Photos do not). The kept copy also takes the oldest copy's file date. The photo
+  itself is never edited and an existing sidecar is never changed. Details the copies disagree on are left out
+  and listed on the kept photo. If a sidecar can't be written, that set's copies are put back instead of recycled.
 
 ## Speed and system use
 

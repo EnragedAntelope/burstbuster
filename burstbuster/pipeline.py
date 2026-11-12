@@ -8,7 +8,7 @@ import time
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from . import APP_DIR, features, group, models, pick, scan
+from . import APP_DIR, features, group, merge, models, pick, scan
 
 FEATURE_VERSION = 4  # bump when measure() output changes, to invalidate the cache
 
@@ -123,6 +123,10 @@ def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, l
                 g["flags"].append(f"AI second opinion unavailable ({type(e).__name__})")
     for i, g in enumerate(groups):
         g["id"] = i
+        if g["type"] == "duplicate":  # what "keep photo details" would carry over, shown in the review
+            k = next(s for s in g["shots"] if s["id"] == g["top"])
+            g["carry"] = merge.describe(*merge.plan(merge.details(k["id"], k["files"]),
+                                                    [merge.details(s["id"], s["files"]) for s in g["shots"] if s is not k]))
     groups.sort(key=lambda g: (g["confidence"] != "close", g["type"] != "burst", g["id"]))
 
     aside = [s for g in groups for s in g["shots"] if not s["keep"]]

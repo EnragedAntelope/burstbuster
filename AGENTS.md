@@ -8,7 +8,7 @@ approval. User-facing usage lives in README.md; this file is for working on the 
 
 _Last verified: 2026-11-12_
 
-- **Status:** main is v1.0.2 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
+- **Status:** main is v1.1.0 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
   pytest on Windows, Ubuntu and macOS x Python 3.11-3.14 (`.github/workflows/tests.yml`).
 - **Works:** read-only CLI scan; grouping and picking (eval passed on a private local test set at all three
   levels before release); journaled move / restore / recycle with tests; pywebview GUI (start, progress, review with
@@ -16,8 +16,10 @@ _Last verified: 2026-11-12_
   person through a multi-person burst (automatic, plus a "Focus on a person" click override in review);
   smaller saves of one capture (exports, shared copies) set aside before burst picking, full size kept;
   exact copies keep the one with companion files, then more EXIF/XMP, then a non-"copy" name; same picture with
-  edited metadata (JPEG/PNG `scan.pixel_hash`) grouped as copies; DupeDestroyer mode (`mode="dupes"`, start-screen
-  toggle, `scan --dupes`): copies only, no models, resized copies matched by `scan.look`; underexposed frames set aside
+  edited metadata (JPEG/PNG/HEIC `scan.pixel_hash`) grouped as copies; DupeDestroyer mode (`mode="dupes"`,
+  start-screen toggle, `scan --dupes`): copies only, no models, resized copies matched by `scan.look`; opt-in
+  "Keep photo details" (`merge.py`): at Recycle time, details the keeper lacks go into a new `<file>.xmp` sidecar
+  and it takes the oldest copy's mtime; a failed write puts that set's copies back; underexposed frames set aside
   ("Darker", relative to the brightest shot, checked on real dark bursts); macOS/Linux support (Trash via
   send2trash, Qt webview on Linux, `start.sh`). Linux checked in WSL Ubuntu: CLI scan with models, window
 opens with a working bridge, set-aside then Trash on dummy files. macOS: CI tests only.
@@ -26,8 +28,9 @@ opens with a working bridge, set-aside then Trash on dummy files. macOS: CI test
   - Run the app for real on macOS, and click through a full run on a Linux desktop (WSL checks only so far).
   - Verify the HEIC fix on a real iPhone HEIC (only a generated one was tested).
   - Match copies whose EXIF was stripped (messaging apps) to their original by look alone.
-  - DupeDestroyer: merge metadata across copies (XMP sidecar on the keeper, oldest date), HEIC pixel matching,
-    re-take `docs/start.png` (start screen now has the mode toggle), try it on a real library.
+  - DupeDestroyer: re-take `docs/start.png` (start screen now has the mode toggle and details checkbox), try it
+    on a real library, check a written sidecar opens in digiKam or darktable. A copy kept by a copies set can still
+    be set aside by burst picking (it then shows in two cards; pre-existing).
   - Live-window click-through, real drag-and-drop, and a log file for `pythonw` startup crashes (see gaps).
 - **Known gaps:** the review screen has been used in the live window; a full live run through to the Recycle
   Bin is (unknown - confirm before relying on this); the Recycle Bin call itself is verified on a dummy file.
@@ -88,6 +91,8 @@ Python 3.11+ venv in `.venv` (onnxruntime, Pillow and rawpy set the floor). Mode
 - `pipeline.py` - orchestrates (copies first: exact, same pixels, resized; then bursts unless `mode="dupes"`;
   `_KEEP_RULES` is the ordered keep-a-copy rule list, `_add_copies` merges chained copy groups), caches features in `APP_DIR\cache.sqlite` (`%LOCALAPPDATA%\BurstBuster` on
   Windows, `~/Library/Application Support/BurstBuster` on macOS, `$XDG_DATA_HOME/BurstBuster` on Linux).
+- `merge.py` - photo details of a copy (EXIF, embedded XMP, sidecars; XMP read by regex, not an XML parser),
+  what the keeper lacks, and writing a new sidecar (`open(..., "x")`, never overwrites). Never edits a photo.
 - `fileops.py` - the only code that moves files: journal, set_aside, restore, recycle, reconcile.
 - `vlm.py` - OpenAI-compatible client; local/private hosts only, no redirects.
 - `app.py` + `ui/` - pywebview window, `js_api` bridge (no HTTP port); page is inlined at startup.

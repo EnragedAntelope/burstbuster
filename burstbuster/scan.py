@@ -192,13 +192,22 @@ def exact_duplicates(shots):
 def pixel_hash(path):
     """Hash of the picture data only, skipping metadata, or None. A rating, tag or date written into a copy
     (Explorer, Lightroom, exiftool) changes the file but not this. Re-encoding changes it.
-    shortcut: JPEG and PNG only; HEIC/RAW return None (would need a decode), add if those copies show up."""
+    JPEG and PNG are read without decoding; HEIC is decoded (slower, so only same size and time are compared).
+    shortcut: RAW returns None, add if edited RAW copies show up."""
+    h = hashlib.sha256()
+    if Path(path).suffix.lower() in {".heic", ".heif"}:
+        try:
+            with Image.open(path) as im:
+                h.update(f"{im.mode} {im.size}".encode())
+                h.update(im.tobytes())
+            return h.hexdigest()
+        except Exception:
+            return None
     try:
         with open(path, "rb") as f:
             data = f.read()
     except OSError:
         return None
-    h = hashlib.sha256()
     if data[:2] == b"\xff\xd8":
         i = 2
         while i + 4 <= len(data):

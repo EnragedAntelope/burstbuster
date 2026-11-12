@@ -45,6 +45,7 @@ async function start() {
   const s = st.settings || {};
   if (s.folder) $("folder").value = s.folder;
   if (s.recursive === false) $("recursive").checked = false;
+  if (s.merge) $("merge").checked = true;
   if (s.level) document.querySelector(`input[name=level][value=${s.level}]`).checked = true;
   if (s.mode === "dupes") document.querySelector("input[name=mode][value=dupes]").checked = true;
   modeChanged();
@@ -130,7 +131,7 @@ for (const r of document.querySelectorAll("input[name=mode]")) r.addEventListene
 $("scan").addEventListener("click", async () => {
   const dupes = mode() === "dupes";
   const opts = {
-    folder: $("folder").value.trim(), recursive: $("recursive").checked, mode: mode(),
+    folder: $("folder").value.trim(), recursive: $("recursive").checked, mode: mode(), merge: $("merge").checked,
     level: document.querySelector("input[name=level]:checked").value,
     ai: !dupes && $("ai").checked && !!(aiInfo && aiInfo.ok), ai_url: aiInfo && aiInfo.ok ? aiInfo.url : "",
     ai_model: $("ai-model").value || "",
@@ -277,6 +278,9 @@ function shotEl(gi, s) {
   lazy(img);
   const pic = el("div", { class: "pic" }, img, peopleLayer(report.groups[gi], s));
   const reasons = s.reasons.map((r) => el("li", { class: r.startsWith("AI") ? "ai" : "" }, r));
+  const g = report.groups[gi];
+  if (report.merge && g.carry && s.id === g.top && s.keep && !s.recycled && g.shots.some((x) => x.held))
+    reasons.push(...g.carry.map((c) => el("li", { title: "Done when you send the copies to the Recycle Bin" }, c)));
   if (s.user) reasons.unshift(el("li", { class: "user" }, s.keep ? "You kept this" : "You set this aside"));
   const m = s.metrics, facts = [];
   if (s.dims) facts.push(`${s.dims[0]}x${s.dims[1]}`);
@@ -395,13 +399,16 @@ $("c-aside").addEventListener("click", () => { const s = cmpShot; closeCompare()
 // ---------- finish ----------
 $("accept").addEventListener("click", async () => {
   const held = report.groups.flatMap((g) => g.shots).filter((s) => s.held);
-  if (!confirm(`Send ${plural(held.length, "set-aside photo")} (with their Live Photo and sidecar files) to the Recycle Bin?\n\nYou can restore them from the Recycle Bin later.`)) return;
+  if (!confirm(`Send ${plural(held.length, "set-aside photo")} (with their Live Photo and sidecar files) to the Recycle Bin?` +
+    (report.merge ? "\n\nPhoto details from removed copies are saved next to the copy you keep first." : "") +
+    "\n\nYou can restore them from the Recycle Bin later.")) return;
   $("accept").disabled = true;
   const r = await call("accept_all");
   if (r.error) toast(r.error, 8000);
   $("done-title").textContent = r.recycled ? "Sent to the Recycle Bin" : "Nothing was recycled";
   $("done-text").textContent = `${plural(r.recycled, "file")} moved to the Recycle Bin.` +
     (r.left.length ? ` ${plural(r.left.length, "file")} stayed in the holding folder.` : "") +
+    (r.kept_back ? ` ${r.kept_back} ${r.kept_back === 1 ? "copy was" : "copies were"} put back because their photo details could not be saved.` : "") +
     " Changed your mind? Open the Recycle Bin and choose Restore.";
   show("done");
 });

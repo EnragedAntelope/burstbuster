@@ -41,6 +41,11 @@
       <input id="recursive" type="checkbox" checked> Include subfolders
     </label>
 
+    <label class="check">
+      <input id="merge" type="checkbox"> Keep photo details from copies that are removed
+      <span class="help" tabindex="0" data-tip="When you send copies to the Recycle Bin, details the kept copy is missing (date taken, camera, place, rating, keywords, title, caption) are saved in a new sidecar file next to it (IMG_1.jpg.xmp, read by digiKam, darktable and similar apps), and it takes the oldest copy's file date. The photo itself is never edited, and an existing sidecar is never changed. Details the copies disagree on are left out.">?</span>
+    </label>
+
     <fieldset class="field burst-only">
       <legend class="label">How much to keep <span class="help" tabindex="0" data-tip="Within one burst, how different two photos must be before both are kept.">?</span></legend>
       <div class="seg" role="radiogroup">

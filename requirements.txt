@@ -6,4 +6,6 @@ pillow-heif>=1.8
 rawpy>=0.28
 pywebview>=6.2
 pywin32>=312; sys_platform == "win32"
+send2trash>=1.8; sys_platform != "win32"  # Trash on macOS and Linux
+pywebview[qt]>=6.2; sys_platform == "linux"  # window backend that installs into the venv
 # mediapipe pulls in opencv-contrib-python; do not add another OpenCV package (they clash)

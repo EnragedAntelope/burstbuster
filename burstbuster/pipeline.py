@@ -1,5 +1,6 @@
 """Scan a folder and build the report. Read-only: never moves, renames or writes a photo."""
 import json
+import multiprocessing
 import os
 import re
 import sqlite3
@@ -82,7 +83,9 @@ def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, l
         paths = models.ensure_models(log)
         total = len(todo)
         progress("Looking at photos", len(shots) - total, len(shots))
-        with ProcessPoolExecutor(_worker_count(), initializer=features.init_models, initargs=(paths,)) as ex:
+        # spawn everywhere: forking a process that runs GUI and model threads can hang (Linux default)
+        with ProcessPoolExecutor(_worker_count(), multiprocessing.get_context("spawn"), features.init_models,
+                                 (paths,)) as ex:
             futs = [ex.submit(_measure_safe, s.primary) for s in todo]
             for i, fut in enumerate(as_completed(futs), 1):
                 if cancelled():

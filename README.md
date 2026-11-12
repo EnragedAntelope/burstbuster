@@ -1,32 +1,39 @@
 # BurstBuster
 
 **Fired off 20 shots to get one good one? BurstBuster keeps the best shot of every moment and sets the rest
-aside, with a plain-English reason for every choice.** Free, private, and fast on an ordinary Windows PC.
+aside, with a plain-English reason for every choice.** Free, private, and fast on an ordinary computer:
+Windows, Mac or Linux.
 
 [![Tests](https://github.com/EnragedAntelope/burstbuster/actions/workflows/tests.yml/badge.svg)](https://github.com/EnragedAntelope/burstbuster/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Windows](https://img.shields.io/badge/platform-Windows-0078D6)
-![Python 3.13](https://img.shields.io/badge/python-3.13-3776AB)
+![Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-555)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB)
 
 ![BurstBuster review screen: the kept shots, and the set-aside shots with their reasons](docs/review.png)
 
 - **Picks like you would.** Eyes open first, then the subject in focus, then the bigger smile and facing the camera.
   It's not just for people: birds, kayaks, pets and night skies are judged on what's sharpest.
-- **Explains every call.** "Eyes closed", "Blurrier: 28% as sharp as the best", "Smaller copy of IMG_0120.JPG".
+- **Explains every call.** "Eyes closed", "Blurrier: 28% as sharp as the best", "Darker: 45% as bright as the
+  best", "Smaller copy of IMG_0120.JPG".
   Close calls go to the top so you can check them first.
-- **Never loses a photo.** Nothing is deleted until you approve it, and then it goes to the Recycle Bin. One click
-  restores everything.
+- **Never loses a photo.** Nothing is deleted until you approve it, and then it goes to the Recycle Bin (the Trash
+  on Mac and Linux). One click restores everything.
 - **Fast and light.** About 120 phone photos in 25 seconds on a desktop CPU, no graphics card needed, and a
   re-scan of the same folder in under a second ([numbers below](#speed-and-system-use)).
-- **100% local.** No account, no upload, no telemetry. Your photos never leave your PC.
+- **100% local.** No account, no upload, no telemetry. Your photos never leave your computer.
 
 ## Get started
 
-1. Install [Python 3.13](https://www.python.org/downloads/) (tick "Add python.exe to PATH").
+1. Install [Python](https://www.python.org/downloads/) 3.11 or newer. On Windows, tick "Add python.exe to PATH".
 2. Download the [latest release](https://github.com/EnragedAntelope/burstbuster/releases/latest) (Source code
    zip) and unzip it, or `git clone https://github.com/EnragedAntelope/burstbuster`.
-3. Double-click `START.bat`. The first run installs what it needs (a few minutes, internet needed once). After
-   that it opens straight away.
+3. Start it. The first run installs what it needs (a few minutes, internet needed once). After that it opens
+   straight away.
+   - **Windows:** double-click `START.bat`.
+   - **Mac or Linux:** in a terminal, `cd` into the folder and run `./start.sh`.
+
+Mac needs Apple Silicon (M1 or newer); Intel Macs are not supported by MediaPipe. On Debian or Ubuntu, first run
+`sudo apt install python3-venv libgles2 libegl1` (start.sh tells you if something is missing).
 
 ## How to use it
 
@@ -51,9 +58,10 @@ Keys: arrows move, K keep, X set aside, Space compare, Esc close, ? help.
 ## How it chooses
 
 Photos taken seconds apart that look alike form a burst. Within a burst, photos with the same pose form a moment.
-For each moment it first drops shots with a clear problem (eyes closed, subject blurrier than the best, more
-blown-out highlights), then ranks the rest by a bigger smile, facing the camera, and sharpness. Every burst
-always keeps at least one photo, and a different moment is kept unless it is clearly worse.
+For each moment it first drops shots with a clear problem (eyes closed, subject blurrier than the best, clearly
+darker than the best, more blown-out highlights), then ranks the rest by a bigger smile, facing the camera, and sharpness. Every burst
+always keeps at least one photo, and a different moment is kept unless it is clearly worse. Darkness is judged
+against the rest of the burst, so a night sky where every frame is dark loses nothing.
 
 A photo with no face in it is never marked down for that when it shows a different moment: a bird, a sign or a
 sunset is its own picture, judged on sharpness and exposure.
@@ -75,7 +83,7 @@ It also tidies up copies:
 
 - **No graphics card needed.** Everything runs on the CPU with small models (about 100 MB in total, downloaded
   once and checked against fixed hashes).
-- **Leaves your PC usable.** It uses at most half your CPU cores (up to 8), at roughly 400 MB of memory each.
+- **Leaves your computer usable.** It uses at most half your CPU cores (up to 8), at roughly 400 MB of memory each.
 - **Measured** on an Intel i7-13700KF (8 worker processes): 120 phone-sized photos (12 MP JPEG) in 25 seconds,
   peak memory 3.4 GB in total. A 4-core laptop runs 2 workers, so expect roughly 1 GB and a slower scan.
 - **Re-scans are instant.** Measurements are cached, so scanning the same folder again took 0.1 seconds.
@@ -85,9 +93,9 @@ It also tidies up copies:
 - Scanning only reads your photos. Moves are journaled, so an interrupted run is settled the next time the app
   starts.
 - Nothing is ever overwritten, and a photo changed since the scan is left where it is.
-- Nothing is deleted permanently. On network or removable drives (no Recycle Bin), set-aside photos stay in the
-  holding folder for you to delete yourself.
-- Cloud-only OneDrive files are skipped, so a scan never triggers downloads.
+- Nothing is deleted permanently. On Windows network or removable drives (no Recycle Bin), set-aside photos stay
+  in the holding folder for you to delete yourself.
+- Cloud-only OneDrive files are skipped on Windows, so a scan never triggers downloads.
 
 ## Privacy
 
@@ -99,12 +107,12 @@ on this computer or your home network and refuses anything else. It never overri
 
 ## Command line
 
-`python -m burstbuster scan <folder> [--no-subfolders] [--level identical|pose|one] [--report out.json]`
-prints what the app would do and moves nothing.
+`.venv\Scripts\python -m burstbuster scan <folder> [--no-subfolders] [--level identical|pose|one] [--report out.json]`
+prints what the app would do and moves nothing (on Mac and Linux, `.venv/bin/python`).
 
 ## Limits
 
-Windows only. Photos only (JPEG, HEIC, PNG and common RAW formats); videos are not analysed, though Live Photo
+Windows is the most tested platform; Mac and Linux pass the automated tests but have had less real use. Photos only (JPEG, HEIC, PNG and common RAW formats); videos are not analysed, though Live Photo
 videos move with their photo.
 
 ## Bugs and ideas welcome
@@ -113,7 +121,8 @@ Found a photo it got wrong, a crash, or something confusing? Have an idea that w
 **[Open an issue](https://github.com/EnragedAntelope/burstbuster/issues/new/choose)**. Every report helps.
 Please describe the photos instead of attaching personal ones, unless you're happy for them to be public.
 
-Pull requests are welcome too. Run the tests with `.venv\Scripts\python -m pytest tests -q`; notes for working
+Pull requests are welcome too. Run the tests with `.venv\Scripts\python -m pytest tests -q` (or
+`.venv/bin/python` on Mac and Linux); notes for working
 on the code are in [AGENTS.md](AGENTS.md).
 
 ## Credits

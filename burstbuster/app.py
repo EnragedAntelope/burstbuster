@@ -5,6 +5,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -294,16 +295,26 @@ class Api:
 
     def open_holding(self):
         if self._report and os.path.isdir(self._report["holding"]):
-            os.startfile(self._report["holding"])
+            _reveal(self._report["holding"], select=False)
 
     def show_in_folder(self, sid):
-        path = fileops.path_for(self._run, sid)
-        subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+        _reveal(fileops.path_for(self._run, sid), select=True)
 
     def clear_cache(self):
         from .pipeline import clear_cache
         clear_cache()
         return True
+
+
+def _reveal(path, select):
+    """Open a folder, or the folder holding a file with that file selected where the platform can."""
+    path = os.path.normpath(path)
+    if os.name == "nt":
+        subprocess.Popen(["explorer", "/select,", path]) if select else os.startfile(path)
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", "-R", path] if select else ["open", path])
+    else:
+        subprocess.Popen(["xdg-open", os.path.dirname(path) if select else path])
 
 
 def _page():

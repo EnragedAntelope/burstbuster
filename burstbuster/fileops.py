@@ -40,8 +40,19 @@ def holding_dir(root, run):
     return os.path.join(os.path.abspath(root), HOLDING_DIR, run)
 
 
+def _move(src, dst):
+    """Same-volume move that never replaces an existing file."""
+    if os.name == "nt":
+        os.rename(src, dst)  # Windows rename refuses to overwrite
+    else:
+        os.link(src, dst)  # POSIX rename would silently replace dst; link fails if dst exists
+        os.unlink(src)
+
+
 def recycle_supported(path):
     """(True, "") if files on this drive can go to the Recycle Bin, else (False, why)."""
+    if os.name != "nt":
+        return True, ""  # send2trash finds the right Trash per volume, and fails rather than deletes
     import ctypes
     drive = os.path.splitdrive(os.path.abspath(path))[0]
     if drive.startswith("\\\\"):
@@ -99,12 +110,12 @@ def set_aside(root, run, shots):
         try:
             for row_id, (src, dst, _, _) in zip(ids, plan):
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
-                os.rename(src, dst)  # same volume: atomic; fails rather than overwrite
+                _move(src, dst)  # same volume; fails rather than overwrite
                 _set(db, row_id, "moved")
                 done.append((row_id, src, dst))
         except OSError as e:
             for row_id, src, dst in reversed(done):  # all or nothing
-                os.rename(dst, src)
+                _move(dst, src)
                 _set(db, row_id, "rolledback", str(e))
             for row_id in ids[len(done):]:
                 _set(db, row_id, "failed", str(e))
@@ -144,7 +155,7 @@ def restore(run, shot_ids=None):
             skipped.append([shot, f"{os.path.basename(dst)} is missing from the holding folder"])
             continue
         os.makedirs(os.path.dirname(src), exist_ok=True)
-        os.rename(dst, src)
+        _move(dst, src)
         _set(db, row_id, "restored")
         restored.add(shot)
     if hold:
@@ -156,7 +167,11 @@ def restore(run, shot_ids=None):
 
 def _recycle(paths):
     """Send files to the Recycle Bin via the Windows shell. Windows asks before any permanent delete
-    (e.g. a file too big for the bin) instead of doing it silently."""
+    (e.g. a file too big for the bin) instead of doing it silently. Elsewhere: the Trash, via send2trash."""
+    if os.name != "nt":
+        from send2trash import send2trash
+        send2trash([os.path.abspath(p) for p in paths])  # raises instead of deleting when there is no Trash
+        return True
     import pythoncom
     from win32com.shell import shell
     FOF_NOCONFIRMATION, FOF_ALLOWUNDO, FOF_WANTNUKEWARNING = 0x10, 0x40, 0x4000
@@ -232,7 +247,10 @@ def reconcile():
     problems = []
     for row_id, src, dst in db.execute("SELECT id, src, dst FROM moves WHERE state='planned'").fetchall():
         s, d = os.path.lexists(src), os.path.lexists(dst)
-        if d and not s:
+        if d and s and os.path.samefile(src, dst):  # POSIX move stopped between link and unlink
+            os.unlink(src)
+            _set(db, row_id, "moved", "finished after restart")
+        elif d and not s:
             _set(db, row_id, "moved", "confirmed after restart")
         elif s and not d:
             _set(db, row_id, "skipped", "never moved (interrupted)")

@@ -8,6 +8,8 @@ from .features import EYE_CLOSED
 KEEP_SHARP = 0.80       # within one pose, softer than this fraction of the best = set aside
 OTHER_POSE_SHARP = 0.60 # a different pose is kept unless it is this much blurrier than the best
 CLIP_MARGIN = 0.02      # extra fraction of blown-out pixels tolerated vs the cleanest shot
+DARKER = 0.80           # within one pose, under this fraction of the brightest shot's brightness = underexposed
+OTHER_POSE_DARK = 0.70  # across poses (a much darker frame often looks like a new pose to the grouping)
 SMILE_STEP = 0.15       # smile difference that counts as noticeable
 CLOSE_SHARP = 0.95      # runner-up this close in sharpness = close call
 SAME_PERSON = 0.65      # person-crop similarity between frames: same person ~0.7-0.9, others ~0.2-0.6
@@ -133,6 +135,8 @@ def _gate_failures(f, ref_sharp, min_clip, face_expected, sharp_limit):
         out.append(f"Blurrier: {int(100 * f['sharp'] / ref_sharp)}% as sharp as the best")
     if f["clip_hi"] > min_clip + CLIP_MARGIN:
         out.append("More blown-out highlights")
+    if f.get("dim", 1) < DARKER:
+        out.append(f"Darker: {int(100 * f['dim'])}% as bright as the best")
     return out
 
 
@@ -153,7 +157,6 @@ def pick_burst(burst, feats, level="pose", chosen=None):
         return not subj or f["size"] >= SMALLER * max_size
     pitches = [x["pitch"] for s in burst for x in F[s.id]["faces"]]
     pitch0 = statistics.median(pitches) if pitches else 0.0
-    best_sharp = max(F[s.id]["sharp"] for s in burst)
     min_clip = min(F[s.id]["clip_hi"] for s in burst)
 
     # a missing face only counts against a shot when its own moment mostly shows one: across moments a
@@ -170,7 +173,11 @@ def pick_burst(burst, feats, level="pose", chosen=None):
     result, close, flags, close_sets = {}, False, [], []
     keepers = []
     for mi, m in enumerate(group.moments(burst, feats, group.MOMENT_T[level])):
-        ref = max(F[s.id]["sharp"] for s in m)
+        top_bright = max(F[s.id]["brightness"] for s in m)
+        for s in m:
+            F[s.id]["dim"] = F[s.id]["brightness"] / top_bright if top_bright else 1
+        # an underexposed frame's noise reads as extra sharpness, so it must not set the bar for the others
+        ref = max(F[s.id]["sharp"] for s in m if F[s.id]["dim"] >= DARKER)
         fe = sum(1 for s in m if F[s.id]["faces"]) >= len(m) / 2
         ranked = sorted(m, key=lambda s: rank_key(s, ref, fe), reverse=True)
         k = ranked[0]
@@ -224,12 +231,21 @@ def pick_burst(burst, feats, level="pose", chosen=None):
             result[s.id] = {"keep": False, "reasons": ["Same moment as the pick"] + why, "moment": mi, "role": "same-pose"}
 
     # Across poses: the overall best always stays; other poses stay unless clearly worse.
-    _, top = max(keepers, key=lambda mk: rank_key(mk[1], best_sharp))
+    top_bright = max(F[s.id]["brightness"] for s in burst)
+
+    def bdim(s):
+        return F[s.id]["brightness"] / top_bright if top_bright else 1
+    best_sharp = max(F[s.id]["sharp"] for s in burst if F[s.id]["dim"] >= DARKER and bdim(s) >= OTHER_POSE_DARK)
+    _, top = max(keepers, key=lambda mk: (bdim(mk[1]) >= OTHER_POSE_DARK, rank_key(mk[1], best_sharp)))
     top_ok = not fails(top, best_sharp, OTHER_POSE_SHARP)
 
     def hard(s):
         miss = F[s.id].get("missing")  # the main person being absent is no reason to drop a different moment
-        return [w for w in fails(s, best_sharp, OTHER_POSE_SHARP) if not w.startswith("More blown") and w != miss]
+        out = [w for w in fails(s, best_sharp, OTHER_POSE_SHARP)
+               if not w.startswith(("More blown", "Darker")) and w != miss]
+        if bdim(s) < OTHER_POSE_DARK:
+            out.insert(0, f"Darker: {int(100 * bdim(s))}% as bright as the best")  # likely the cause of the rest
+        return out
 
     for mi, k in keepers:
         if k.id == top.id:

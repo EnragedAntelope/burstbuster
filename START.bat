@@ -4,9 +4,16 @@ cd /d "%~dp0"
 
 if not exist ".venv\Scripts\python.exe" (
   echo First run: setting up. This takes a few minutes and needs internet once.
-  py -3.13 -m venv .venv 2>nul || python -m venv .venv
+  py -3 -m venv .venv 2>nul || python -m venv .venv
   if errorlevel 1 (
-    echo Could not create the Python environment. Install Python 3.13 from python.org and try again.
+    echo Could not create the Python environment. Install Python 3.11 or newer from python.org and try again.
+    pause
+    exit /b 1
+  )
+  ".venv\Scripts\python.exe" -c "import sys; sys.exit(sys.version_info < (3, 11))"
+  if errorlevel 1 (
+    echo BurstBuster needs Python 3.11 or newer. Install it from python.org and run START.bat again.
+    rmdir /s /q .venv
     pause
     exit /b 1
   )

@@ -41,7 +41,12 @@ class Shot:
 
 
 def _is_link(entry):
-    return entry.is_symlink() or entry.is_junction()
+    if entry.is_symlink():
+        return True
+    # junctions are reparse-point folders (DirEntry.is_junction needs Python 3.12); files can be reparse
+    # points too (OneDrive), so only folders count here
+    return entry.is_dir(follow_symlinks=False) and bool(
+        getattr(entry.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x400)  # REPARSE_POINT
 
 
 def walk(root, recursive=True, skipped=None):

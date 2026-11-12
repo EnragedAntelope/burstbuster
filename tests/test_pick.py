@@ -31,7 +31,8 @@ def _face(blink=0.1, smile=0.3):
 
 
 def _feat(sharp, emb, faces=None):
-    return {"sharp": sharp, "subject_kind": "face", "clip_hi": 0.0, "faces": faces or [_face()], "emb": emb}
+    return {"sharp": sharp, "subject_kind": "face", "clip_hi": 0.0, "brightness": 0.3, "faces": faces or [_face()],
+            "emb": emb}
 
 
 def test_mixed_face_and_body_shots_compare_on_body():
@@ -129,6 +130,28 @@ def test_moment_without_a_face_is_not_dropped_for_it():
                            (1, sign)])
     r = pick.pick_burst(shots, feats, "pose")["shots"]
     assert r["p2.jpg"]["keep"] and not any("Face" in x for x in r["p2.jpg"]["reasons"])
+
+
+def test_underexposed_frame_loses_even_when_its_noise_looks_sharper():
+    """Measured on a real night burst: the dark frame scored 2x sharper from noise alone."""
+    e = _emb(9)
+    night = dict(_feat(0, e), faces=[], subject_kind="photo")
+    shots, feats = _burst([(0, dict(night, frame_sharp=1958.0, brightness=0.065)),
+                           (0.5, dict(night, frame_sharp=900.0, brightness=0.099)),
+                           (1, dict(night, frame_sharp=1074.0, brightness=0.093))])
+    r = pick.pick_burst(shots, feats)["shots"]
+    assert r["p2.jpg"]["keep"] and not r["p0.jpg"]["keep"]
+    assert "Darker: 65% as bright as the best" in r["p0.jpg"]["reasons"]
+    assert not any(x.startswith("Blurrier") for x in r["p1.jpg"]["reasons"])  # judged against p2, not the noise
+    # so dark that it looks like another moment (it did on the real burst): still set aside
+    feats["p0.jpg"]["emb"] = _emb(10)
+    r = pick.pick_burst(shots, feats)["shots"]
+    assert r["p2.jpg"]["keep"] and not r["p0.jpg"]["keep"]
+    assert r["p0.jpg"]["reasons"] == ["Different moment, but darker: 65% as bright as the best"]
+    # every frame equally dark (a night sky) is no reason to set any aside
+    shots, feats = _burst([(0, dict(night, frame_sharp=900.0, brightness=0.02)),
+                           (0.5, dict(night, frame_sharp=880.0, brightness=0.021))])
+    assert not any("Darker" in x for v in pick.pick_burst(shots, feats)["shots"].values() for x in v["reasons"])
 
 
 def test_bigger_smile_beats_slightly_sharper():

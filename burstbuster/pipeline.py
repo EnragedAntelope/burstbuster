@@ -169,9 +169,8 @@ def _measure_all(shots, progress, cancelled, log):
     db = _cache()
     feats, todo, errors = {}, [], []
     for s in shots:
-        size, mtime = os.path.getsize(s.primary), os.stat(s.primary).st_mtime_ns
         row = db.execute("SELECT data FROM feats WHERE path=? AND size=? AND mtime=? AND ver=?",
-                         (s.primary, size, mtime, FEATURE_VERSION)).fetchone()
+                         (s.primary, *s.stat, FEATURE_VERSION)).fetchone()
         if row:
             feats[s.id] = json.loads(row[0])
         else:
@@ -184,6 +183,7 @@ def _measure_all(shots, progress, cancelled, log):
         # spawn everywhere: forking a process that runs GUI and model threads can hang (Linux default)
         with ProcessPoolExecutor(_worker_count(), multiprocessing.get_context("spawn"), features.init_models,
                                  (paths,)) as ex:
+            stats = {s.primary: s.stat for s in todo}  # the walk's view: set_aside checks it again before moving
             futs = [ex.submit(_measure_safe, s.primary) for s in todo]
             for i, fut in enumerate(as_completed(futs), 1):
                 if cancelled():
@@ -195,9 +195,8 @@ def _measure_all(shots, progress, cancelled, log):
                     errors.append({"path": path, "error": err})
                 else:
                     feats[path] = data
-                    st = os.stat(path)
                     db.execute("INSERT OR REPLACE INTO feats VALUES (?,?,?,?,?)",
-                               (path, st.st_size, st.st_mtime_ns, FEATURE_VERSION, json.dumps(data)))
+                               (path, *stats[path], FEATURE_VERSION, json.dumps(data)))
                 progress("Looking at photos", len(shots) - total + i, len(shots))
         db.commit()
     db.close()

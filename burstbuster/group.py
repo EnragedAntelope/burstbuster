@@ -41,22 +41,21 @@ def bursts(shots, feats):
         run.append(s)
     if run:
         out.append(run)
-    # shortcut: photos with no capture time are only matched within their own folder, O(n^2) per folder
+    # shortcut: photos with no capture time are only matched within their own folder, O(n^2) per folder in
+    # numpy (seconds for 10k photos); use an index (e.g. faiss) if folders reach hundreds of thousands
     untimed = {}
     for s in shots:
         if s.time is None:
             untimed.setdefault(os.path.dirname(s.primary), []).append(s)
     for group in untimed.values():
-        used = set()
-        for i, a in enumerate(group):
-            if a.id in used:
+        e = np.array([feats[s.id]["emb"] for s in group])
+        used = np.zeros(len(group), bool)
+        for i in range(len(group)):
+            if used[i]:
                 continue
-            run = [a]
-            for b in group[i + 1:]:
-                if b.id not in used and cos(feats[a.id]["emb"], feats[b.id]["emb"]) >= NOTIME_SIM:
-                    run.append(b)
-                    used.add(b.id)
-            out.append(run)
+            js = np.nonzero((e[i + 1:] @ e[i] >= NOTIME_SIM) & ~used[i + 1:])[0] + i + 1
+            used[js] = True
+            out.append([group[i]] + [group[j] for j in js])
     return [b for b in out if len(b) > 1]
 
 
@@ -85,17 +84,17 @@ def moments(burst, feats, threshold):
         return [list(burst)]
     n = len(burst)
     e = np.array([feats[s.id]["emb"] for s in burst])
-    d = 1.0 - e @ e.T
-    clusters = [[i] for i in range(n)]
+    d = 1.0 - e @ e.T  # cluster-to-cluster average distance, indexed by each cluster's first frame
+    np.fill_diagonal(d, np.inf)
+    size = np.ones(n)
+    clusters = {i: [i] for i in range(n)}
     while len(clusters) > 1:
-        best, pair = None, None
-        for i in range(len(clusters)):
-            for j in range(i + 1, len(clusters)):
-                v = d[np.ix_(clusters[i], clusters[j])].mean()
-                if best is None or v < best:
-                    best, pair = v, (i, j)
-        if best is None or pair is None or best > threshold:
+        i, j = divmod(int(np.argmin(d)), n)  # first closest pair, i < j (d is symmetric)
+        if d[i, j] > threshold:
             break
-        i, j = pair
+        d[i] = (size[i] * d[i] + size[j] * d[j]) / (size[i] + size[j])  # average linkage, updated in place
+        d[:, i] = d[i]
+        d[j] = d[:, j] = d[i, i] = np.inf
+        size[i] += size[j]
         clusters[i] += clusters.pop(j)
-    return [[burst[i] for i in sorted(c)] for c in clusters]
+    return [[burst[i] for i in sorted(c)] for c in clusters.values()]

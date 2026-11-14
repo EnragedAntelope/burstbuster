@@ -6,6 +6,7 @@
 - Nothing is ever permanently deleted. The final step sends files to the Windows Recycle Bin, and
   only on drives that have one; Windows is told to warn before any permanent delete.
 """
+import errno
 import json
 import os
 import sqlite3
@@ -14,6 +15,7 @@ import time
 from . import APP_DIR, HOLDING_DIR
 
 JOURNAL = APP_DIR / "journal.sqlite"
+_NO_LINKS = {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EMLINK}
 
 
 def _db():
@@ -44,9 +46,19 @@ def _move(src, dst):
     """Same-volume move that never replaces an existing file."""
     if os.name == "nt":
         os.rename(src, dst)  # Windows rename refuses to overwrite
-    else:
+        return
+    try:
         os.link(src, dst)  # POSIX rename would silently replace dst; link fails if dst exists
-        os.unlink(src)
+    except OSError as e:
+        if e.errno not in _NO_LINKS:
+            raise
+        # exFAT/FAT (SD cards, many external drives) have no hard links
+        # shortcut: tiny check-then-rename race, fine for one user; use renameat2/renamex_np if that changes
+        if os.path.lexists(dst):
+            raise FileExistsError(errno.EEXIST, "File exists", dst) from None
+        os.rename(src, dst)
+        return
+    os.unlink(src)
 
 
 def recycle_supported(path):
@@ -115,8 +127,11 @@ def set_aside(root, run, shots):
                 done.append((row_id, src, dst))
         except OSError as e:
             for row_id, src, dst in reversed(done):  # all or nothing
-                _move(dst, src)
-                _set(db, row_id, "rolledback", str(e))
+                try:
+                    _move(dst, src)
+                    _set(db, row_id, "rolledback", str(e))
+                except OSError as e2:  # stays "moved": the journal still says where it is
+                    _set(db, row_id, "moved", f"could not move back: {e2}")
             for row_id in ids[len(done):]:
                 _set(db, row_id, "failed", str(e))
             skipped.append([shot["id"], f"could not move: {e.strerror or e}"])
@@ -140,29 +155,46 @@ def _write_manifest(db, run, hold):
 def restore(run, shot_ids=None):
     """Move files back to where they came from. Never overwrites. Returns {"restored", "skipped"}."""
     db = _db()
-    q = "SELECT id, shot, src, dst, root FROM moves WHERE run=? AND state='moved'"
-    rows = db.execute(q, (run,)).fetchall()
-    restored, skipped = set(), []
+    q = "SELECT id, shot, src, dst, root FROM moves WHERE run=? AND state='moved' ORDER BY id"
+    shots = {}
+    for row in db.execute(q, (run,)).fetchall():
+        shots.setdefault(row[1], []).append(row)
+    restored, skipped = [], []
     hold = None
-    for row_id, shot, src, dst, root in rows:
-        hold = holding_dir(root, run)
+    for shot, rows in shots.items():
+        hold = holding_dir(rows[0][4], run)
         if shot_ids is not None and shot not in shot_ids:
             continue
-        if os.path.lexists(src):
-            skipped.append([shot, f"{os.path.basename(src)} already exists in the original folder"])
+        taken = next((src for _, _, src, _, _ in rows if os.path.lexists(src)), None)
+        if taken:  # all of a shot's files or none, as when setting aside
+            skipped.append([shot, f"{os.path.basename(taken)} already exists in the original folder"])
             continue
-        if not os.path.exists(dst):
-            skipped.append([shot, f"{os.path.basename(dst)} is missing from the holding folder"])
+        done = []
+        try:
+            for row_id, _, src, dst, _ in rows:
+                if not os.path.exists(dst):  # gone already; bringing back the rest is still right
+                    skipped.append([shot, f"{os.path.basename(dst)} is missing from the holding folder"])
+                    continue
+                os.makedirs(os.path.dirname(src), exist_ok=True)
+                _move(dst, src)
+                _set(db, row_id, "restored")
+                done.append((row_id, src, dst))
+        except OSError as e:
+            for row_id, src, dst in reversed(done):
+                try:
+                    _move(src, dst)
+                    _set(db, row_id, "moved", f"restore undone: {e}")
+                except OSError:
+                    pass  # it is back in the original folder, as its "restored" row says
+            skipped.append([shot, f"could not move back: {e.strerror or e}"])
             continue
-        os.makedirs(os.path.dirname(src), exist_ok=True)
-        _move(dst, src)
-        _set(db, row_id, "restored")
-        restored.add(shot)
+        if done:
+            restored.append(shot)
     if hold:
         _write_manifest(db, run, hold)
         _prune_empty(hold)
     db.close()
-    return {"restored": sorted(restored), "skipped": skipped}
+    return {"restored": restored, "skipped": skipped}
 
 
 def _recycle(paths):
@@ -197,11 +229,17 @@ def recycle(run, recycler=None):
     db = _db()
     rows = db.execute("SELECT id, dst, root FROM moves WHERE run=? AND state='moved'", (run,)).fetchall()
     if not rows:
+        db.close()
         return {"recycled": 0, "left": [], "error": None}
     ok, why = recycle_supported(rows[0][2])
     if not ok:
+        db.close()
         return {"recycled": 0, "left": [r[1] for r in rows], "error": why + " Photos stay in the holding folder."}
     present = [r for r in rows if os.path.exists(r[1])]
+    hold = holding_dir(rows[0][2], run)
+    if os.path.isdir(rows[0][2]):  # drive is there but the file is not: removed by hand, never coming back
+        for row_id, _, _ in (r for r in rows if r not in present):
+            _set(db, row_id, "gone", "missing from the holding folder")
     error = None
     try:
         if present and not recycler([r[1] for r in present]):
@@ -215,7 +253,6 @@ def recycle(run, recycler=None):
         else:
             _set(db, row_id, "recycled")
             n += 1
-    hold = holding_dir(rows[0][2], run)
     _write_manifest(db, run, hold)
     _prune_empty(hold)
     db.close()

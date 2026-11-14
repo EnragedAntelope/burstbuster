@@ -184,12 +184,15 @@ class Api:
 
     def image(self, sid, size=360):
         key = (sid, size)
-        if key not in self._thumbs:
-            try:
-                self._thumbs[key] = _data_url(_render(fileops.path_for(self._run, sid), size))
-            except OSError:  # recycled, or moved outside the app
-                return None
-        return self._thumbs[key]
+        if key in self._thumbs:
+            return self._thumbs[key]
+        try:
+            url = _data_url(_render(fileops.path_for(self._run, sid), size))
+        except OSError:  # recycled, or moved outside the app
+            return None
+        if size <= 360:  # grid thumbnails only: large compare previews would fill memory over a long review
+            self._thumbs[key] = url
+        return url
 
     def face(self, sid):
         """Face close-up at full working resolution (what sharpness was measured on)."""

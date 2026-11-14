@@ -39,6 +39,11 @@ class Shot:
     def id(self):
         return self.primary
 
+    @property
+    def stat(self):
+        """(size, mtime_ns) of the primary file as the walk saw it."""
+        return next((sz, mt) for p, sz, mt in self.files if p == self.primary)
+
 
 def _is_link(entry):
     if entry.is_symlink():
@@ -158,9 +163,13 @@ def inventory(root, recursive=True):
         primary = _pick_primary([f[0] for f in files])
         if primary is None:
             continue  # a video or sidecar on its own is not a photo; leave it alone
-        ex = read_exif(primary)
-        shots.append(Shot(primary=primary, files=sorted(files), time=ex.get("time"),
-                          camera=ex.get("camera", ""), exif=ex))
+        # a second picture of the same name (photo.jpg + photo.png, IMG_1.jpg + img_1.jpg on Linux) is a shot
+        # of its own, judged like any other, never a passenger that moves with the first
+        extra = [f for f in files if f[0] != primary and Path(f[0]).suffix.lower() in IMAGE_EXT]
+        for p, own in [(primary, [f for f in files if f not in extra])] + [(f[0], [f]) for f in extra]:
+            ex = read_exif(p)
+            shots.append(Shot(primary=p, files=sorted(own), time=ex.get("time"), camera=ex.get("camera", ""),
+                              exif=ex))
     shots.sort(key=lambda s: (s.time is None, s.time or 0, s.primary))
     return shots, skipped
 
@@ -177,14 +186,17 @@ def exact_duplicates(shots):
     """Groups of shots whose primary files are byte-identical. Hashes only same-size files."""
     by_size = {}
     for s in shots:
-        by_size.setdefault(os.path.getsize(s.primary), []).append(s)
+        by_size.setdefault(s.stat[0], []).append(s)
     groups = []
     for same in by_size.values():
         if len(same) < 2:
             continue
         by_hash = {}
         for s in same:
-            by_hash.setdefault(file_hash(s.primary), []).append(s)
+            try:
+                by_hash.setdefault(file_hash(s.primary), []).append(s)
+            except OSError:  # gone or locked since the walk: not a copy of anything
+                pass
         groups += [g for g in by_hash.values() if len(g) > 1]
     return groups
 

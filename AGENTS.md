@@ -6,9 +6,9 @@ approval. User-facing usage lives in README.md; this file is for working on the 
 
 ## Current state
 
-_Last verified: 2026-11-12_
+_Last verified: 2026-11-13_
 
-- **Status:** main is v1.1.1 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
+- **Status:** main is v1.1.2 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
   pytest on Windows, Ubuntu and macOS x Python 3.11-3.14 (`.github/workflows/tests.yml`).
 - **Works:** read-only CLI scan; grouping and picking (eval passed on a private local test set at all three
   levels before release); journaled move / restore / recycle with tests; pywebview GUI (start, progress, review with
@@ -28,6 +28,8 @@ opens with a working bridge, set-aside then Trash on dummy files. macOS: CI test
 - **In progress:** nothing.
 - **To do (next pick-ups):**
   - Run the app for real on macOS, and click through a full run on a Linux desktop (WSL checks only so far).
+  - Set aside and restore on a real exFAT card on macOS or Linux (the no-hard-link fallback is tested with a
+    mocked `os.link` only).
   - Verify the HEIC fix on a real iPhone HEIC (only a generated one was tested).
   - Match copies whose EXIF was stripped (messaging apps) to their original by look alone.
   - DupeDestroyer: re-take `docs/start.png` (start screen now has the mode toggle and details checkbox), try it
@@ -105,7 +107,12 @@ Python 3.11+ venv in `.venv` (onnxruntime, Pillow and rawpy set the floor). Mode
 - Sharpness is Laplacian variance on the subject crop resized to a fixed size, divided by brightness;
   only meaningful relative within a burst.
 - Moving: same-volume `fileops._move` only (rename on Windows; link + unlink on POSIX, where rename would
-  silently overwrite), journal row committed before each move, never overwrite, all companions or none.
+  silently overwrite; on drives without hard links, exFAT/FAT, check-then-rename), journal row committed before
+  each move, never overwrite, all companions or none, in both `set_aside` and `restore`. A move that fails is
+  undone file by file; a file that can't be undone keeps the journal state that says where it is. Journal states:
+  planned, moved, rolledback, failed, restored, recycled, skipped, conflict, gone (removed from holding by hand).
+- Companion grouping (`scan.inventory`) keeps at most one `IMAGE_EXT` file per shot; a second picture with the
+  same name is its own shot.
   Recycling uses `IFileOperation` with `FOF_WANTNUKEWARNING` on Windows (send2trash silences that warning)
   and send2trash elsewhere. Never add permanent deletion.
 - Worker processes always use the `spawn` start method (Linux defaults to fork, which is unsafe once threaded libraries are loaded, and would differ from Windows).

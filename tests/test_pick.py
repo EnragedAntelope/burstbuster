@@ -6,6 +6,40 @@ from burstbuster import features, group, pick
 from burstbuster.scan import Shot
 
 
+def _naive_moments(burst, feats, threshold):
+    """The original average-linkage loop, kept as the reference for the fast one."""
+    e = np.array([feats[s.id]["emb"] for s in burst])
+    d = 1.0 - e @ e.T
+    clusters = [[i] for i in range(len(burst))]
+    while len(clusters) > 1:
+        best, pair = np.inf, (0, 0)
+        for i in range(len(clusters)):
+            for j in range(i + 1, len(clusters)):
+                v = d[np.ix_(clusters[i], clusters[j])].mean()
+                if v < best:
+                    best, pair = v, (i, j)
+        if best > threshold:
+            break
+        i, j = pair
+        clusters[i] += clusters.pop(j)
+    return [[burst[i].id for i in sorted(c)] for c in clusters]
+
+
+def test_fast_moments_match_the_reference():
+    for seed in range(5):
+        shots = [Shot(primary=f"p{i}.jpg") for i in range(40)]
+        feats = {s.id: {"emb": _emb(i % 6 + 10 * seed, jitter=0.15 + 0.05 * (i % 3))} for i, s in enumerate(shots)}
+        for t in (0.05, 0.1, 0.3):
+            assert [[s.id for s in m] for m in group.moments(shots, feats, t)] == _naive_moments(shots, feats, t)
+
+
+def test_untimed_photos_join_only_near_identical_ones_in_their_folder():
+    shots = [Shot(primary=p) for p in ("a/1.png", "a/2.png", "a/3.png", "b/4.png")]
+    feats = {"a/1.png": {"emb": _emb(1)}, "a/2.png": {"emb": _emb(2)}, "a/3.png": {"emb": _emb(1, 0.01)},
+             "b/4.png": {"emb": _emb(1)}}
+    assert [[s.primary for s in b] for b in group.bursts(shots, feats)] == [["a/1.png", "a/3.png"]]
+
+
 def test_sharpness_ranks_blur_lower():
     rng = np.random.default_rng(0)
     img = (rng.random((600, 600)) * 255).astype(np.uint8)

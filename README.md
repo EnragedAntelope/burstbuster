@@ -78,7 +78,8 @@ When several people share the frame, each photo is judged on the person who appe
 
 It also tidies up copies:
 
-- Live Photo videos, RAW+JPEG pairs and sidecar files always move together with their photo.
+- Live Photo videos, RAW+JPEG pairs and sidecar files always move together with their photo. Two pictures that
+  share a name (`photo.jpg` and `photo.png`) are judged as separate photos.
 - Byte-identical copies anywhere in the folder are found.
 - So is the same picture with different photo details: a copy where a rating, tag or date was written into the
   file (Explorer, Lightroom, exiftool) but the picture itself was not re-saved. JPEG, PNG and HEIC.
@@ -110,7 +111,8 @@ It also tidies up copies:
 
 - Scanning only reads your photos. Moves are journaled, so an interrupted run is settled the next time the app
   starts.
-- Nothing is ever overwritten, and a photo changed since the scan is left where it is.
+- Nothing is ever overwritten, and a photo changed since the scan is left where it is. Putting a photo back is all
+  or nothing too: if one of its files can't return, all of them stay in the holding folder.
 - Nothing is deleted permanently. On Windows network or removable drives (no Recycle Bin), set-aside photos stay
   in the holding folder for you to delete yourself.
 - Cloud-only OneDrive files are skipped on Windows, so a scan never triggers downloads.

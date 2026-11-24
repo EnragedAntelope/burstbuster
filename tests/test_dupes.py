@@ -1,8 +1,9 @@
 """Copies-only mode on synthetic JPEGs: exact copies, same picture with more metadata, smaller saves."""
+import os
 import shutil
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from burstbuster import scan
 from burstbuster.pipeline import analyze
@@ -59,5 +60,69 @@ def test_look_tells_resize_from_other_picture(tmp_path):
     Image.open(tmp_path / "a.jpg").resize((120, 90)).save(tmp_path / "s.jpg")
     Image.open(tmp_path / "a.jpg").convert("L").resize((120, 90)).save(tmp_path / "g.jpg")  # black-and-white edit
     _photo(tmp_path / "b.jpg", 2)
-    la, ls, lg, lb = (np.array(scan.look(str(tmp_path / n))) for n in ("a.jpg", "s.jpg", "g.jpg", "b.jpg"))
+    la, ls, lg, lb = (np.array(scan.look(str(tmp_path / n))["emb"]) for n in ("a.jpg", "s.jpg", "g.jpg", "b.jpg"))
     assert la @ ls > 0.97 > max(la @ lg, la @ lb)
+
+
+def _edit(src, dst, size=None):
+    """Copy of a JPEG (same EXIF) with one corner filled in grey, as when something is removed, optionally saved
+    smaller. The whole still looks alike (thumbnail cosine about 0.98)."""
+    im = Image.open(src)
+    ex = im.getexif()
+    im = im.convert("RGB")
+    ImageDraw.Draw(im).rectangle([im.width * 0.85, im.height * 0.85, im.width, im.height], fill=(128, 128, 128))
+    (im.resize(size) if size else im).save(dst, quality=92, exif=ex)
+
+
+def test_smaller_copy_with_a_local_edit_is_not_a_plain_copy(tmp_path):
+    _photo(tmp_path / "IMG_1.jpg", 1)
+    Image.open(tmp_path / "IMG_1.jpg").resize((200, 150)).save(tmp_path / "small.jpg",
+                                                               exif=Image.open(tmp_path / "IMG_1.jpg").getexif())
+    _edit(tmp_path / "IMG_1.jpg", tmp_path / "marked.jpg", (200, 150))  # same look overall, one corner changed
+    from burstbuster import group
+    lk = {n: scan.look(str(tmp_path / n)) for n in ("IMG_1.jpg", "small.jpg", "marked.jpg")}
+    assert group.cos(lk["IMG_1.jpg"]["emb"], lk["marked.jpg"]["emb"]) >= group.NOTIME_SIM  # the whole still matches
+    rep = analyze(str(tmp_path), mode="dupes")
+    names = sorted(s["id"].replace("\\", "/").split("/")[-1] for g in rep["groups"] for s in g["shots"])
+    assert names == ["IMG_1.jpg", "small.jpg"]
+
+
+def test_edited_version_is_a_copy_shown_first_not_a_burst_frame(tmp_path):
+    _photo(tmp_path / "IMG_1234.jpg", 1)
+    _edit(tmp_path / "IMG_1234.jpg", tmp_path / "IMG_E1234.jpg")           # iPhone edit: same name, same second
+    _photo(tmp_path / "trip.jpg", 3)
+    _edit(tmp_path / "trip.jpg", tmp_path / "trip-edited.jpg")             # Google Takeout edit
+    _edit(tmp_path / "trip-edited.jpg", tmp_path / "trip-edited-edited.jpg", (300, 200))  # edit of the edit: same set
+    _photo(tmp_path / "IMG_E9.jpg", 4)                                     # edit-like name, original missing
+    rep = analyze(str(tmp_path), mode="dupes")
+    sets = {tuple(sorted(s["id"].replace("\\", "/").split("/")[-1] for s in g["shots"])): g for g in rep["groups"]}
+    assert set(sets) == {("IMG_1234.jpg", "IMG_E1234.jpg"), ("trip-edited-edited.jpg", "trip-edited.jpg", "trip.jpg")}
+    for g in sets.values():
+        assert g["confidence"] == "close"
+        keep = [s for s in g["shots"] if s["keep"]]
+        aside = [s for s in g["shots"] if not s["keep"]]
+        assert len(keep) == 1 and os.path.basename(keep[0]["id"]) in ("IMG_1234.jpg", "trip.jpg")
+        assert all(s["reasons"][0].startswith("Edited version of") for s in aside)
+
+
+def test_copy_holding_details_the_kept_one_lacks_is_flagged(tmp_path):
+    _photo(tmp_path / "IMG_1.jpg", 1)
+    (tmp_path / "IMG_1.mov").write_bytes(b"live photo")  # companion: this copy is kept
+    _with_xmp(tmp_path / "IMG_1.jpg", tmp_path / "IMG_1 (1).jpg")  # the removed copy has a rating
+    g = analyze(str(tmp_path), mode="dupes")["groups"][0]
+    assert g["confidence"] == "close" and g["flags"] == ["Only the copies have: rating"]
+    g = analyze(str(tmp_path), mode="dupes", keep_details=True)["groups"][0]  # carried over: nothing is lost
+    assert g["confidence"] == "confident" and g["flags"] == []
+
+
+def test_exact_copies_read_in_full_only_when_their_start_matches(tmp_path, monkeypatch):
+    for name, head in (("a.jpg", b"A"), ("b.jpg", b"B"), ("c.jpg", b"B")):
+        (tmp_path / name).write_bytes(head + b"\0" * 200_000)  # one size, like uncompressed RAWs
+    reads = []
+    real = scan.file_hash
+    monkeypatch.setattr(scan, "file_hash", lambda p, limit=None: reads.append((p[-5:], limit)) or real(p, limit))
+    shots = [scan.Shot(primary=str(tmp_path / n), files=[(str(tmp_path / n), 200_001, 1)])
+             for n in ("a.jpg", "b.jpg", "c.jpg")]
+    groups = scan.exact_duplicates(shots)
+    assert [[s.primary[-5:] for s in g] for g in groups] == [["b.jpg", "c.jpg"]]
+    assert sorted(r for r in reads if r[1] is None) == [("b.jpg", None), ("c.jpg", None)]  # a.jpg: 64 KB only

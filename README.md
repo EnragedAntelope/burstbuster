@@ -18,7 +18,8 @@ Windows, Mac or Linux.
   best", "Smaller copy of IMG_0120.JPG".
   Close calls go to the top so you can check them first.
 - **Clears out copies too.** Switch to **DupeDestroyer** for a fast copies-only pass: exact copies, the same
-  picture with different photo details, and smaller saves. The best-described, full-size copy is kept.
+  picture with different photo details, smaller saves and edited versions. The best-described, full-size
+  original is kept.
 - **Never loses a photo.** Nothing is deleted until you approve it, and then it goes to the Recycle Bin (the Trash
   on Mac and Linux). One click restores everything.
 - **Fast and light.** About 120 phone photos in 25 seconds on a desktop CPU, no graphics card needed, and a
@@ -85,10 +86,17 @@ It also tidies up copies:
   file (Explorer, Lightroom, exiftool) but the picture itself was not re-saved. JPEG, PNG and HEIC.
 - Smaller saves of the same photo (same camera and capture time, same shape, for example an export or a shared
   copy) are found too, and the full-size one is kept. A smaller save with different colours (a black-and-white or
-  filtered edit) is not a copy and is left alone.
+  filtered edit), or with part of the picture changed (text added, something removed), is not a copy and is left
+  alone.
+- Edited versions saved next to the original (`IMG_E1234` from an iPhone, `photo-edited` from Google Takeout,
+  `photo-copy(1)`), taken in the same second, are a set of their own instead of burst frames: the original is
+  kept, and the set is shown first so you can keep the edit instead.
 - Among copies of one picture, the one kept is the first that wins on: companion files (Live Photo, RAW, sidecar),
-  then more photo details (date, camera, place, rating), then a name that does not end in "copy" or "(1)", then
-  the shortest path, then the oldest file. The reason is shown on the kept photo.
+  then more photo details (date, camera, place, rating), then its name (one ending in "_Original" first, one ending
+  in "copy", "(1)", " 1" or "-edited" last), then the shortest path, then the oldest file. The reason is shown on
+  the kept photo.
+- A set of copies where a removed copy has details the kept one lacks (a rating, a place, keywords) is shown
+  first, marked "Only the copies have: ...", unless the option below will save them.
 - **Keep photo details from copies that are removed** (off by default): when you send copies to the Recycle Bin,
   details the kept copy is missing (date taken, camera, place, rating, keywords, title, caption) are saved in a
   new sidecar file next to it, for example `IMG_1.jpg.xmp`, which digiKam, darktable and similar apps read

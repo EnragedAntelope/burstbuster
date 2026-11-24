@@ -116,7 +116,7 @@ def _apple_burst_id(mn):
 
 
 def read_exif(path):
-    """Capture time, camera id and a few settings. Missing values are simply absent."""
+    """Capture time, camera id, stored size, orientation and how many tags. Missing values are simply absent."""
     out = {}
     try:
         if Path(path).suffix.lower() in RAW_EXT:
@@ -143,13 +143,6 @@ def read_exif(path):
     burst = _apple_burst_id(ex.get(0x927C))
     if burst:
         out["burst"] = burst
-    for tag, name in ((33434, "exposure"), (33437, "fnumber"), (34855, "iso"), (37386, "focal")):
-        v = ex.get(tag)
-        if v is not None:
-            try:
-                out[name] = float(v)
-            except (TypeError, ValueError):
-                pass
     return out
 
 
@@ -174,30 +167,40 @@ def inventory(root, recursive=True):
     return shots, skipped
 
 
-def file_hash(path):
+def file_hash(path, limit=None):
+    """SHA-256 of the file, or of its first `limit` bytes."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
+        if limit:
+            h.update(f.read(limit))
+        else:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
     return h.hexdigest()
 
 
+def _same(shots, key):
+    """Groups (2 or more) of shots with an equal key(s); a file gone or locked since the walk matches nothing."""
+    by = {}
+    for s in shots:
+        try:
+            by.setdefault(key(s), []).append(s)
+        except OSError:
+            pass
+    return [g for g in by.values() if len(g) > 1]
+
+
 def exact_duplicates(shots):
-    """Groups of shots whose primary files are byte-identical. Hashes only same-size files."""
+    """Groups of shots whose primary files are byte-identical. Only same-size files are read, and only those
+    whose first 64 KB also match are read in full (uncompressed RAWs from one camera all share one size)."""
     by_size = {}
     for s in shots:
         by_size.setdefault(s.stat[0], []).append(s)
     groups = []
     for same in by_size.values():
-        if len(same) < 2:
-            continue
-        by_hash = {}
-        for s in same:
-            try:
-                by_hash.setdefault(file_hash(s.primary), []).append(s)
-            except OSError:  # gone or locked since the walk: not a copy of anything
-                pass
-        groups += [g for g in by_hash.values() if len(g) > 1]
+        if len(same) > 1:
+            for cands in _same(same, lambda s: file_hash(s.primary, 1 << 16)):
+                groups += _same(cands, lambda s: file_hash(s.primary))
     return groups
 
 
@@ -270,21 +273,25 @@ def same_pixels(shots):
 
 
 def look(path):
-    """Tiny thumbnail (brightness pattern plus colour) as a unit vector, for telling a smaller save of a photo
-    from a different photo without the models. Cosine with the original is about 1.0 for a resize and well
-    below 0.97 for a black-and-white or recoloured edit; a zero vector if unreadable."""
+    """Tiny thumbnails for telling a smaller save of a photo from a different photo without the models:
+    {"emb": 16 px brightness pattern plus colour as a unit vector (cosine with the original is about 1.0 for a
+    resize and well below 0.97 for a black-and-white or recoloured edit; zeros if unreadable),
+    "patch": 64 px grey, zero mean, slightly blurred, for spotting a local edit (None if unreadable)}."""
     import numpy as np
-    from PIL import ImageOps
+    from PIL import ImageFilter, ImageOps
     try:
         with Image.open(path) as im:
             if im.format == "JPEG":
-                im.draft("YCbCr", (64, 64))
-            t = np.asarray(ImageOps.exif_transpose(im).convert("YCbCr").resize((16, 16), Image.Resampling.BOX),
+                im.draft("YCbCr", (256, 256))  # a 1/8 draft (64 px) adds noise that hides small local edits
+            im = ImageOps.exif_transpose(im).convert("YCbCr")
+            t = np.asarray(im.resize((16, 16), Image.Resampling.BOX), np.float32)
+            # the blur absorbs the sub-pixel shift between two sizes of a detailed picture
+            g = np.asarray(im.getchannel(0).resize((64, 64), Image.Resampling.BOX).filter(ImageFilter.GaussianBlur(1)),
                            np.float32)
     except Exception:
-        return [0.0] * 768
+        return {"emb": [0.0] * 768, "patch": None}
     y = t[..., 0].ravel()
     # brightness is centred (exposure edits still match); colour is not, so a grey edit has none
     a = np.concatenate([y - y.mean(), (t[..., 1:] - 128).ravel()])
     n = float(np.linalg.norm(a))
-    return (a / n).tolist() if n else a.tolist()
+    return {"emb": (a / n).tolist() if n else a.tolist(), "patch": g - g.mean()}

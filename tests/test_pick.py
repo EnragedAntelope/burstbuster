@@ -100,13 +100,18 @@ def test_resized_copy_is_grouped_and_crop_is_not():
 
     def mk(n, dims, t=5.0):
         return Shot(primary=n, files=[(n, 1, 1)], time=t, camera="cam", exif={"dims": dims})
+    p = np.random.default_rng(0).normal(0, 40, (64, 64))
+    edited = p.copy()
+    edited[48:, 48:] += 60  # one corner changed: the whole still looks alike
     shots = [mk("orig.jpg", (4032, 3024)), mk("small.jpg", (1600, 1200)), mk("crop.jpg", (3000, 3000)),
-             mk("other_time.jpg", (1600, 1200), t=6.0), mk("same_size.jpg", (4032, 3024))]
-    feats = {s.id: {"emb": e} for s in shots}
-    assert [[s.id for s in g] for g in group.resized_copies(shots, feats)] == [["orig.jpg", "small.jpg"]]
+             mk("other_time.jpg", (1600, 1200), t=6.0), mk("same_size.jpg", (4032, 3024)),
+             mk("edited.jpg", (1600, 1200)), mk("brighter.jpg", (1600, 1200))]
+    feats = {s.id: {"emb": e, "patch": p} for s in shots}
+    feats["edited.jpg"]["patch"], feats["brighter.jpg"]["patch"] = edited, p * 1.3
+    assert [[s.id for s in g] for g in group.resized_copies(shots, feats)] == [["orig.jpg", "small.jpg", "brighter.jpg"]]
     # a rotated export (portrait pixels) of a landscape original still counts; a different look does not
     shots = [mk("orig.jpg", (4032, 3024)), mk("rot.jpg", (1200, 1600)), mk("diff.jpg", (800, 600))]
-    feats = {"orig.jpg": {"emb": e}, "rot.jpg": {"emb": e}, "diff.jpg": {"emb": _emb(4)}}
+    feats = {"orig.jpg": {"emb": e, "patch": p}, "rot.jpg": {"emb": e, "patch": p}, "diff.jpg": {"emb": _emb(4), "patch": p}}
     assert [[s.id for s in g] for g in group.resized_copies(shots, feats)] == [["orig.jpg", "rot.jpg"]]
 
 
@@ -118,6 +123,11 @@ def test_exact_copy_keeps_companions_then_plain_name():
     live = Shot(primary=r"C:\a\deep\folder\longer\IMG_1 (2).jpg", files=[("x", 1, 1), ("y.mov", 1, 1)])
     assert sorted([copy, paren, plain], key=_copy_rank)[0] is plain
     assert sorted([copy, plain, live], key=_copy_rank)[0] is live
+    mac = Shot(primary=r"C:\IMG_1 1.jpg", files=[("x", 1, 1)])  # Finder's duplicate name, on a shorter path
+    edited = Shot(primary=r"C:\IMG_1-edited.jpg", files=[("x", 1, 1)])
+    assert sorted([mac, edited, plain], key=_copy_rank)[0] is plain
+    original = Shot(primary=r"C:\a\deep\folder\longer\IMG_1_Original.jpg", files=[("x", 1, 1)])
+    assert sorted([plain, original], key=_copy_rank)[0] is original
 
 
 def _burst(specs):

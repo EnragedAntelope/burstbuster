@@ -38,7 +38,8 @@ def test_system_proxy_is_ignored(monkeypatch):
 @pytest.mark.parametrize("text,best", [
     ('{"best": "A", "reason": "bright smile with open eyes, making', "A"),  # cut off by the token limit
     ('Sure! {"best": "B", "reason": "sharper"}', "B"),
-    ("I cannot tell", None)])
+    ("I cannot tell", None),
+    (None, None)])  # a reasoning model that spent every token thinking
 def test_answer_parsing(monkeypatch, text, best):
     import io
     import json

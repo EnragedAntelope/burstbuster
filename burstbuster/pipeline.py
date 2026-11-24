@@ -1,5 +1,6 @@
 """Scan a folder and build the report. Read-only: never moves, renames or writes a photo."""
 import json
+import math
 import multiprocessing
 import os
 import re
@@ -7,10 +8,13 @@ import sqlite3
 import time
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from . import APP_DIR, features, group, merge, models, pick, scan
 
-FEATURE_VERSION = 4  # bump when measure() output changes, to invalidate the cache
+# bump when measure() output changes, to invalidate the cache; at the next bump also drop the unused
+# clip_lo, jaw_open and n_people from features.measure()
+FEATURE_VERSION = 4
 
 
 def _cache():
@@ -59,10 +63,13 @@ def _worker_count():
     return max(1, min((os.cpu_count() or 2) // 2, 8))
 
 
-def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, log=print, ai=None, mode="bursts"):
+def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, log=print, ai=None, mode="bursts",
+            keep_details=False):
     """Return the report dict. progress(stage, done, total); cancelled() -> bool.
     ai: optional {"url", "model"} of a local vision model, consulted only on close calls.
-    mode "dupes": copies only, without the models or burst picking (much faster)."""
+    mode "dupes": copies only, without the models or burst picking (much faster).
+    keep_details: the "Keep photo details" option (merge.py) is on; without it, a set of copies holding details
+    the kept one lacks is marked for a look."""
     progress = progress or (lambda *a: None)
     cancelled = cancelled or (lambda: False)
     t0 = time.time()
@@ -94,10 +101,18 @@ def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, l
     # Smaller saves of the same capture: the picker would judge them on blur and smile, and could keep one.
     # Tiny colour thumbnails, not the model embedding: that ignores colour, so a black-and-white edit would match.
     n = Counter((s.camera, s.time) for s in shots if s.time is not None and s.exif.get("dims"))
-    looks = {s.id: {"emb": scan.look(s.primary)} for s in shots if n[(s.camera, s.time)] > 1}
+    looks = {s.id: scan.look(s.primary) for s in shots if n[(s.camera, s.time)] > 1}
     for g in group.resized_copies(shots, looks):
         _add_copies(groups, g, feats, lambda k, s: f"Smaller copy ({_dims(s)}) of {_rel(k, root)}",
                     f"Full-size original ({_dims(g[0])})")
+    shots = _not_aside(shots, groups)
+
+    # Edited versions (IMG_E1234 next to IMG_1234): the picker would judge them as burst frames. The original is
+    # kept; the set is shown first, since either one may be the one wanted.
+    for g in edited_copies(shots):
+        _add_copies(groups, g, feats, lambda k, s: f"Edited version of {_rel(k, root)}",
+                    "Camera original (keep the edited version instead if you prefer it)")
+        groups[-1]["confidence"] = "close"
     shots = _not_aside(shots, groups)
 
     pending_ai = []
@@ -117,15 +132,26 @@ def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, l
                 cands = [(lab, features.load_image(sid), (feats[sid]["faces"] or [{}])[0].get("box"))
                          for lab, sid in zip(labels, ids)]
                 best, reason = vlm.choose(ai["url"], ai["model"], cands)
-                pick.apply_ai_choice(g["shots"], ids, ids[labels.index(best)], reason)
+                choice = ids[labels.index(best)]
+                pick.apply_ai_choice(g["shots"], ids, choice, reason)
+                if g["top"] == ids[0]:
+                    g["top"] = choice
             except Exception as e:  # the metric pick stands; tell the user why the AI didn't weigh in
                 g["flags"].append(f"AI second opinion unavailable ({type(e).__name__})")
     for i, g in enumerate(groups):
         g["id"] = i
         if g["type"] == "duplicate":  # what "keep photo details" would carry over, shown in the review
             k = next(s for s in g["shots"] if s["id"] == g["top"])
-            g["carry"] = merge.describe(*merge.plan(merge.details(k["id"], k["files"]),
-                                                    [merge.details(s["id"], s["files"]) for s in g["shots"] if s is not k]))
+            add, conflicts, differs = merge.plan(merge.details(k["id"], k["files"]),
+                                                 [merge.details(s["id"], s["files"]) for s in g["shots"] if s is not k])
+            g["carry"] = merge.describe(add, conflicts, differs)
+            # details only the copies have, which recycling them would lose: without the option, or when the kept
+            # copy already has a sidecar (never edited), all of them; with it, the ones the copies disagree on
+            sidecar = any(p.lower().endswith(".xmp") for p in k["files"]) or os.path.exists(merge.sidecar_path(k["id"]))
+            lost = conflicts + (list(add) if not keep_details or sidecar else [])
+            if lost:
+                g["confidence"] = "close"
+                g["flags"].append("Only the copies have: " + ", ".join(dict.fromkeys(merge.FIELDS[f] for f in lost)))
     groups.sort(key=lambda g: (g["confidence"] != "close", g["type"] != "burst", g["id"]))
 
     aside = [s for g in groups for s in g["shots"] if not s["keep"]]
@@ -163,6 +189,24 @@ def _rel(s, root):
     return os.path.relpath(s.primary, root)
 
 
+# an edited copy's name and its original's: "IMG_E1234" (iPhone), "x-edited" (Google Takeout), "x-copy(1)"
+_EDIT_NAME = re.compile(r"(IMG_)E(\d+)|(.+?)[-_ ](?:edited|copy\(\d+\))", re.IGNORECASE)
+
+
+def edited_copies(shots):
+    """Groups of [original, edited version, ...]: a name marked as an edit of another photo in the same folder,
+    taken in the same second (an edit keeps the capture time; its pixels and size may differ)."""
+    second = lambda s: (os.path.dirname(s.primary).lower(), math.floor(s.time))  # noqa: E731
+    originals = {(*second(s), Path(s.primary).stem.lower()): s for s in shots if s.time is not None}
+    out = {}  # an edit of an edit gives a second set; _add_copies merges the two
+    for s in shots:
+        m = s.time is not None and _EDIT_NAME.fullmatch(Path(s.primary).stem)
+        orig = m and originals.get((*second(s), (m[1] + m[2] if m[1] else m[3]).lower()))
+        if orig and orig is not s:
+            out.setdefault(orig.id, [orig]).append(s)
+    return list(out.values())
+
+
 def _measure_all(shots, progress, cancelled, log):
     """Model measurements for every shot, from the cache where unchanged. (feats, errors), or (None, None)
     when cancelled."""
@@ -178,38 +222,76 @@ def _measure_all(shots, progress, cancelled, log):
 
     if todo:
         paths = models.ensure_models(log)
-        total = len(todo)
-        progress("Looking at photos", len(shots) - total, len(shots))
-        # spawn everywhere: forking a process that runs GUI and model threads can hang (Linux default)
-        with ProcessPoolExecutor(_worker_count(), multiprocessing.get_context("spawn"), features.init_models,
-                                 (paths,)) as ex:
-            stats = {s.primary: s.stat for s in todo}  # the walk's view: set_aside checks it again before moving
-            futs = [ex.submit(_measure_safe, s.primary) for s in todo]
-            for i, fut in enumerate(as_completed(futs), 1):
-                if cancelled():
-                    ex.shutdown(cancel_futures=True)
-                    db.commit()
-                    return None, None
-                path, data, err = fut.result()
-                if err:
-                    errors.append({"path": path, "error": err})
-                else:
-                    feats[path] = data
-                    db.execute("INSERT OR REPLACE INTO feats VALUES (?,?,?,?,?)",
-                               (path, *stats[path], FEATURE_VERSION, json.dumps(data)))
-                progress("Looking at photos", len(shots) - total + i, len(shots))
+        stats = {s.primary: s.stat for s in todo}  # the walk's view: set_aside checks it again before moving
+        done = set()
+
+        def record(path, data, err):
+            done.add(path)
+            if err:
+                errors.append({"path": path, "error": err})
+            else:
+                feats[path] = data
+                db.execute("INSERT OR REPLACE INTO feats VALUES (?,?,?,?,?)",
+                           (path, *stats[path], FEATURE_VERSION, json.dumps(data)))
+            if len(done) % 50 == 0:
+                db.commit()  # a crash or power cut keeps what was measured
+            progress("Looking at photos", len(shots) - len(todo) + len(done), len(shots))
+
+        progress("Looking at photos", len(shots) - len(todo), len(shots))
+        left, suspects, blamed = [s.primary for s in todo], 0, 0
+        while left:
+            if cancelled():
+                db.commit()
+                return None, None
+            # A photo that crashes a worker (native decoder, out of memory) breaks the whole pool, and which one
+            # did it is unknown. The photos that were in flight are then measured one at a time to find it.
+            batch = left[:suspects] or left
+            # spawn everywhere: forking a process that runs GUI and model threads can hang (Linux default)
+            with ProcessPoolExecutor(1 if suspects else _worker_count(), multiprocessing.get_context("spawn"),
+                                     features.init_models, (paths,)) as ex:
+                try:
+                    if suspects:
+                        results = (ex.submit(_measure_safe, p).result() for p in batch)
+                    else:
+                        results = (f.result() for f in as_completed([ex.submit(_measure_safe, p) for p in batch]))
+                    for r in results:
+                        if cancelled():
+                            ex.shutdown(cancel_futures=True)
+                            db.commit()
+                            return None, None
+                        record(*r)
+                        blamed = 0
+                    suspects = 0
+                except BrokenProcessPool:
+                    if suspects:  # one at a time: the first unfinished photo is the one that broke the pool
+                        blamed += 1
+                        if blamed >= 3:  # photo after photo with none measured between: the models can't start
+                            db.commit()
+                            raise RuntimeError("The photo analyser could not start (its worker process crashed "
+                                               "before measuring any photo)") from None
+                        record(next(p for p in batch if p not in done), None, "The analyser crashed on this photo")
+                    suspects = 0 if suspects else 2 * _worker_count() + 2  # running plus queued at most
+            left = [p for p in left if p not in done]
         db.commit()
     db.close()
     return feats, errors
 
 
-_COPY_NAME = re.compile(r"(copy( \d+)?|\(\d+\)|-\d)$", re.IGNORECASE)  # "x - Copy", "x copy 2", "x (1)", "x-1"
+# "x - Copy", "x copy 2", "x (1)", "x-1", "x 1" (macOS), "x-edited", "IMG_E1234"; and "x_Original"
+_COPY_NAME = re.compile(r"(copy( \d+)?|\(\d+\)|-\d| \d{1,2}|[-_ ]edited)$|^IMG_E\d", re.IGNORECASE)
+_ORIGINAL_NAME = re.compile(r"[-_ ]original$", re.IGNORECASE)
+
+
+def _name_rank(path):
+    stem = Path(path).stem
+    return 0 if _ORIGINAL_NAME.search(stem) else 2 if _COPY_NAME.search(stem) else 1
+
 
 # Which copy of one picture to keep, in order: the first rule that tells two copies apart decides.
 _KEEP_RULES = [
     (lambda s: -len(s.files), "has its companion files"),
     (lambda s: -s.exif.get("tags", 0), "more photo details: date, camera, place, rating"),
-    (lambda s: bool(_COPY_NAME.search(Path(s.primary).stem)), "the other name looks like a copy"),
+    (lambda s: _name_rank(s.primary), "its name looks like the original"),
     (lambda s: len(s.primary), "shortest path"),
     (lambda s: min(mt for _, _, mt in s.files), "oldest file"),
 ]

@@ -12,6 +12,9 @@ BURST_GAP = 2.0       # seconds: always the same burst
 SCENE_GAP = 30.0      # seconds: same burst only if the photos also look alike
 SCENE_SIM = 0.85      # cosine needed to join across a longer gap
 NOTIME_SIM = 0.97     # photos with no capture time join only if nearly identical
+# smaller copy: no 8x8 block of the 64 px patches may differ more (local_diff). On public wallpapers: plain
+# resizes and re-encodes reach 5.2, a text overlay at least 7.6; most brightened exports stay under it
+LOCAL_DIFF = 6.5
 
 # Moment split distance per strictness level (higher = fewer, bigger moments)
 # 0.10 tuned on real bursts: a hand-held camera shifting between frames reaches ~0.09 for the same pose
@@ -72,10 +75,22 @@ def resized_copies(shots, feats):
         big, (bw, bh) = g[0], g[0].exif["dims"]
         copies = [s for s in g[1:] if s.exif["dims"][0] * s.exif["dims"][1] < bw * bh
                   and abs(min(s.exif["dims"]) / max(s.exif["dims"]) - min(bw, bh) / max(bw, bh)) < 0.01
-                  and cos(feats[s.id]["emb"], feats[big.id]["emb"]) >= NOTIME_SIM]
+                  and cos(feats[s.id]["emb"], feats[big.id]["emb"]) >= NOTIME_SIM
+                  and local_diff(feats[s.id]["patch"], feats[big.id]["patch"]) <= LOCAL_DIFF]
         if copies:
             out.append([big] + copies)
     return out
+
+
+def local_diff(a, b):
+    """Largest mean difference (grey levels) in any 8x8 block of two 64 px patches (scan.look): high when part of
+    the picture was edited (text added, something removed) even if the whole still looks alike. A global
+    brightness or contrast change scales the centred patch, so that scale is fitted out first. inf if one is missing."""
+    if a is None or b is None:
+        return float("inf")
+    a, b = np.asarray(a), np.asarray(b)
+    k = float(np.clip((a * b).sum() / max(float((a * a).sum()), 1e-6), 0.5, 2.0))
+    return float(np.abs(a - b / k).reshape(8, 8, 8, 8).mean(axis=(1, 3)).max())
 
 
 def moments(burst, feats, threshold):

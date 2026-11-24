@@ -6,9 +6,9 @@ approval. User-facing usage lives in README.md; this file is for working on the 
 
 ## Current state
 
-_Last verified: 2026-11-13_
+_Last verified: 2026-11-24_
 
-- **Status:** main is v1.1.2 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
+- **Status:** main is v1.1.3 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
   pytest on Windows, Ubuntu and macOS x Python 3.11-3.14 (`.github/workflows/tests.yml`).
 - **Works:** read-only CLI scan; grouping and picking (eval passed on a private local test set at all three
   levels before release); journaled move / restore / recycle with tests; pywebview GUI (start, progress, review with
@@ -16,9 +16,14 @@ _Last verified: 2026-11-13_
   person through a multi-person burst (automatic, plus a "Focus on a person" click override in review);
   smaller saves of one capture (exports, shared copies) set aside before burst picking, full size kept, matched
   in both modes by `scan.look` (tiny brightness + colour thumbnail; the DINOv2 embedding ignores colour, so a
-  black-and-white edit would match);
-  exact copies keep the one with companion files, then more EXIF/XMP, then a non-"copy" name; same picture with
-  edited metadata (JPEG/PNG/HEIC `scan.pixel_hash`) grouped as copies; DupeDestroyer mode (`mode="dupes"`,
+  black-and-white edit would match) plus a 64 px patch check against local edits (`group.local_diff`);
+  edited versions (`IMG_E1234`, `-edited`, `-copy(N)`, same folder and second) are a copies set keeping the
+  original, shown first (`pipeline.edited_copies`; before, they were judged as burst frames);
+  exact copies keep the one with companion files, then more EXIF/XMP, then the name (`pipeline._name_rank`); same
+  picture with edited metadata (JPEG/PNG/HEIC `scan.pixel_hash`) grouped as copies; a copies set whose removed
+  copies hold details the keeper lacks, and that "Keep photo details" will not save, is flagged "close";
+  a photo that crashes a worker is found one at a time and listed as unreadable while the rest are measured
+  (cache saved every 50; three crashes in a row with nothing measured stop the scan with an error); DupeDestroyer mode (`mode="dupes"`,
   start-screen toggle, `scan --dupes`): copies only, no models; opt-in
   "Keep photo details" (`merge.py`): at Recycle time, details the keeper lacks go into a new `<file>.xmp` sidecar
   and it takes the oldest copy's mtime; a failed write puts that set's copies back; underexposed frames set aside
@@ -31,7 +36,12 @@ opens with a working bridge, set-aside then Trash on dummy files. macOS: CI test
   - Set aside and restore on a real exFAT card on macOS or Linux (the no-hard-link fallback is tested with a
     mocked `os.link` only).
   - Verify the HEIC fix on a real iPhone HEIC (only a generated one was tested).
-  - Match copies whose EXIF was stripped (messaging apps) to their original by look alone.
+  - Match copies whose EXIF was stripped (messaging apps) to their original by look alone. Idea from
+    krea2-lora-pipeline `31_dedupe.py`: require two independent signals (DINOv2 plus the `scan.look` patch), across
+    folders, bucketed by aspect ratio. Also check whether the no-time burst rule (DINOv2 alone, within a folder)
+    joins different screenshots of one app.
+  - Re-tune `group.LOCAL_DIFF` on real exports (set on the public Windows wallpapers with synthetic edits) and
+    re-time the README speed figures (copy matching now decodes candidates at 256 px).
   - DupeDestroyer: re-take `docs/start.png` (start screen now has the mode toggle and details checkbox), try it
     on a real library, check a written sidecar opens in digiKam or darktable. A copy kept by a copies set can still
     be set aside by burst picking (it then shows in two cards; pre-existing).
@@ -50,7 +60,10 @@ opens with a working bridge, set-aside then Trash on dummy files. macOS: CI test
   The darker-frame limits (`pick.DARKER`, `OTHER_POSE_DARK`) were tuned on four private bursts with little
   margin (a dark frame at 78%, a normal one at 81%). Brightness is a gate, not a rank: of two passing frames
   the sharper wins even if the other is better exposed. Intel Macs are unsupported (no mediapipe wheel).
-  Copies that lost their EXIF (messaging apps) are not matched to the original.
+  Copies that lost their EXIF (messaging apps) are not matched to the original. The worker-crash recovery is
+  tested with a fake pool only, not a real native crash. Edited versions are tested on synthetic files (no real
+  iPhone `IMG_E` or Takeout export yet). `local_diff` misses small retouches (a 5% sticker or a local blur is
+  caught only about two times in three) and flags about one in six strongly brightened exports.
 - **Deep docs:** none beyond this file and README.md.
 
 ## Private data - never commit
@@ -92,7 +105,7 @@ Python 3.11+ venv in `.venv` (onnxruntime, Pillow and rawpy set the floor). Mode
 - `pick.py` - filter (hard gates) then rank, with reasons; marks close calls for the VLM. With several
   people, `tracks()` follows each person frame to frame (person-crop embedding) and `subject()` picks whose
   face/body every shot is judged on. Any shot passing the sharpness gate competes on smile.
-- `pipeline.py` - orchestrates (copies first: exact, same pixels, resized; then bursts unless `mode="dupes"`;
+- `pipeline.py` - orchestrates (copies first: exact, same pixels, resized, edited versions; then bursts unless `mode="dupes"`;
   `_KEEP_RULES` is the ordered keep-a-copy rule list, `_add_copies` merges chained copy groups), caches features in `APP_DIR\cache.sqlite` (`%LOCALAPPDATA%\BurstBuster` on
   Windows, `~/Library/Application Support/BurstBuster` on macOS, `$XDG_DATA_HOME/BurstBuster` on Linux).
 - `merge.py` - photo details of a copy (EXIF, embedded XMP, sidecars; XMP read by regex, not an XML parser),

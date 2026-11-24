@@ -269,3 +269,47 @@ def test_file_gone_after_the_walk_does_not_stop_copy_matching(tmp_path):
     shots, _ = scan.inventory(root)
     os.remove(root / "c.jpg")
     assert [sorted(Path(s.primary).name for s in g) for g in scan.exact_duplicates(shots)] == [["a.jpg", "b.jpg"]]
+
+
+def test_photo_that_crashes_the_analyser_is_found_and_the_rest_measured(tmp_path, monkeypatch):
+    from concurrent.futures import Future
+    from concurrent.futures.process import BrokenProcessPool
+
+    from burstbuster import pipeline
+
+    class Pool:
+        """Like a process pool whose worker dies on a "bad" photo: that photo and every one after it fail."""
+        def __init__(self, workers, *a):
+            self.broken = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def shutdown(self, **k):
+            pass
+
+        def submit(self, fn, path):
+            f = Future()
+            self.broken = self.broken or "bad" in path
+            f.set_exception(BrokenProcessPool()) if self.broken else f.set_result((path, {"n": 1}, None))
+            return f
+
+    monkeypatch.setattr(pipeline, "ProcessPoolExecutor", Pool)
+    monkeypatch.setattr(pipeline, "APP_DIR", tmp_path / "app")
+    monkeypatch.setattr(pipeline.models, "ensure_models", lambda log: {})
+    names = [f"bad{i}.jpg" if i in (5, 20) else f"ok{i}.jpg" for i in range(30)]
+    shots = [scan.Shot(primary=n, files=[(n, 1, 1)]) for n in names]
+    feats, errors = pipeline._measure_all(shots, lambda *a: None, lambda: False, print)
+    assert sorted(e["path"] for e in errors) == ["bad20.jpg", "bad5.jpg"]
+    assert sorted(feats) == sorted(n for n in names if n.startswith("ok"))
+    assert len(pipeline.cached_feats(names)) == 28  # measurements are saved, so a rescan does not redo them
+
+    names = [f"bad-start{i}.jpg" for i in range(40)]  # every worker dies before measuring: stop, don't blame all
+    with pytest.raises(RuntimeError, match="could not start"):
+        pipeline._measure_all([scan.Shot(primary=n, files=[(n, 1, 1)]) for n in names],
+                              lambda *a: None, lambda: False, print)
+    assert pipeline._measure_all([scan.Shot(primary=n, files=[(n, 1, 1)]) for n in names],
+                                 lambda *a: None, lambda: True, print) == (None, None)  # Stop works mid-recovery

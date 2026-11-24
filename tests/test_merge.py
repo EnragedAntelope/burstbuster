@@ -100,10 +100,32 @@ def test_carry_over_runs_on_set_aside_copies(tmp_path):
     res = fileops.set_aside(str(tmp_path), run, [{"id": c, "stat": rep["groups"][0]["shots"][1]["stat"]}])
     assert c in res["moved"]
     rep["groups"][0]["shots"][1]["held"] = True
-    assert _api(rep, run)._carry_over() == 0
+    api = _api(rep, run)
+    assert api._carry_over() == 0
     keeper = rep["groups"][0]["shots"][0]
     assert merge.details(k, keeper["files"])["rating"] == "4"
     assert keeper["files"] == [k, k + ".xmp"] and len(keeper["stat"]) == 2  # sidecar now moves with the photo
+
+
+
+def test_carry_over_runs_once_when_accept_is_pressed_again(tmp_path):
+    k, c = _jpeg(tmp_path / "IMG_1.jpg", rating=2), _jpeg(tmp_path / "IMG_1 (1).jpg", rating=4)
+    rep, run = _report(tmp_path, k, c), fileops.new_run_id()
+    fileops.set_aside(str(tmp_path), run, [{"id": c, "stat": rep["groups"][0]["shots"][1]["stat"]}])
+    rep["groups"][0]["shots"][1]["held"] = True  # still held: say the Recycle Bin step failed the first time
+    api = _api(rep, run)
+    api._carry_over()
+    keeper = rep["groups"][0]["shots"][0]
+    assert keeper["reasons"] == ["Removed copy had rating 4 (kept this one's)"]
+    api._carry_over()
+    assert keeper["reasons"] == ["Removed copy had rating 4 (kept this one's)"]
+    c2 = _jpeg(tmp_path / "IMG_1 (2).jpg", rating=5)  # a copy set aside after the first Accept still counts
+    rep["groups"][0]["shots"].append(_report(tmp_path, k, c2)["groups"][0]["shots"][1])
+    fileops.set_aside(str(tmp_path), run, [{"id": c2, "stat": rep["groups"][0]["shots"][2]["stat"]}])
+    rep["groups"][0]["shots"][2]["held"] = True
+    api._carry_over()
+    assert keeper["reasons"] == ["Removed copy had rating 4 (kept this one's)",
+                                 "Removed copy had rating 5 (kept this one's)"]
 
 
 def test_carry_over_failure_puts_copies_back(tmp_path, monkeypatch):

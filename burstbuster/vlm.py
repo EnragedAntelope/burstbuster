@@ -92,15 +92,15 @@ def choose(url, model, candidates, timeout=120):  # first call may wait for the 
     req = urllib.request.Request(url.rstrip("/") + "/chat/completions", data=body,
                                  headers={"Content-Type": "application/json"})
     with _open(req, timeout=timeout) as r:
-        text = json.load(r)["choices"][0]["message"]["content"]
-    m = re.search(r"\{.*\}", text or "", re.S)
+        text = json.load(r)["choices"][0]["message"]["content"] or ""  # None when a reasoning model ran out of tokens
+    m = re.search(r"\{.*\}", text, re.S)
     try:
         ans = json.loads(m.group(0)) if m else {}
     except ValueError:
         ans = {}
     if not ans:  # a cut-off answer still names its pick
-        b = re.search(r'"best"\s*:\s*"([^"]+)"', text or "")
-        r = re.search(r'"reason"\s*:\s*"([^"]*)', text or "")
+        b = re.search(r'"best"\s*:\s*"([^"]+)"', text)
+        r = re.search(r'"reason"\s*:\s*"([^"]*)', text)
         ans = {"best": b.group(1), "reason": r.group(1) if r else ""} if b else {}
     best = str(ans.get("best", "")).strip().strip('"').upper()
     if best not in labels:

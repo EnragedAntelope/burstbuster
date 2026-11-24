@@ -125,7 +125,7 @@ class Api:
             ai = {"url": opts["ai_url"], "model": opts["ai_model"]} if opts.get("ai") and opts.get("ai_model") else None
             rep = analyze(opts["folder"], opts.get("recursive", True), opts.get("level", "pose"),
                           progress=progress, cancelled=lambda: self._cancel, log=lambda m: progress(m, 0, 0), ai=ai,
-                          mode=opts.get("mode", "bursts"))
+                          mode=opts.get("mode", "bursts"), keep_details=bool(opts.get("merge")))
             if rep is None:
                 self._prog.update(running=False, stage="Cancelled - nothing was moved.")
                 return
@@ -277,7 +277,8 @@ class Api:
         details could not be written gets its copies moved back, so no detail is lost."""
         failed = []
         for g in self._report["groups"]:
-            held = [s for s in g["shots"] if s.get("held")]
+            # each copy once: Accept may be pressed again, after more copies were set aside
+            held = [s for s in g["shots"] if s.get("held") and s["id"] not in g.get("carried", [])]
             kept = [s for s in g["shots"] if s["keep"] and not s.get("held") and not s.get("recycled")]
             if g["type"] != "duplicate" or not held or not kept:
                 continue
@@ -300,6 +301,7 @@ class Api:
                 k["stat"].append([r["sidecar"], st.st_size, st.st_mtime_ns])
                 k["reasons"].append("Photo details from its copies saved in " + os.path.basename(r["sidecar"]))
             k["reasons"] += merge.describe({}, r["conflicts"], r["differs"])
+            g["carried"] = g.get("carried", []) + [s["id"] for s in held]
         if failed:
             res = fileops.restore(self._run, failed)
             for g in self._report["groups"]:

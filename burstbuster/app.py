@@ -69,7 +69,12 @@ class Api:
     # ---------- start screen ----------
     def init(self):
         problems = fileops.reconcile()
-        return {"settings": _load_json(SETTINGS, {}), "open_runs": fileops.open_runs(), "problems": problems}
+        runs = fileops.open_runs()
+        live = {r["run"] for r in runs}
+        for p in RUNS.glob("*.json"):  # a review with nothing left in a holding folder is never opened again
+            if p.stem not in live:
+                p.unlink(missing_ok=True)
+        return {"settings": _load_json(SETTINGS, {}), "open_runs": runs, "problems": problems}
 
     def choose_folder(self):
         r = self._window.create_file_dialog(webview.FileDialog.FOLDER)

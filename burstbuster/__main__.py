@@ -32,6 +32,10 @@ def main():
         print(f"\n{rep['photos']} photos, {st['groups']} groups, {st['set_aside']} set aside "
               f"({st['bytes'] / 1e6:.0f} MB), {len(rep['errors'])} unreadable, {rep['seconds']} s")
     else:
+        if sys.stderr is None:  # pythonw (START.bat) has no console: keep a crash's traceback somewhere to find
+            from . import APP_DIR
+            APP_DIR.mkdir(parents=True, exist_ok=True)
+            sys.stdout = sys.stderr = open(APP_DIR / "log.txt", "w", encoding="utf-8", buffering=1)
         from .app import run
         run()
 

@@ -147,6 +147,7 @@ videos move with their photo.
 
 Found a photo it got wrong, a crash, or something confusing? Have an idea that would make it better?
 **[Open an issue](https://github.com/EnragedAntelope/burstbuster/issues/new/choose)**. Every report helps.
+If the window never opens after starting with START.bat, the error is in `%LOCALAPPDATA%\BurstBuster\log.txt`.
 Please describe the photos instead of attaching personal ones, unless you're happy for them to be public.
 
 Pull requests are welcome too. Run the tests with `.venv\Scripts\python -m pytest tests -q` (or

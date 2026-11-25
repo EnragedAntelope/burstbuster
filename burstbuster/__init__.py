@@ -1,6 +1,6 @@
 """BurstBuster: find photo bursts, keep the best, set the rest aside safely."""
 
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 
 import os
 import sys

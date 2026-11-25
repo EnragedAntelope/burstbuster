@@ -126,3 +126,18 @@ def test_exact_copies_read_in_full_only_when_their_start_matches(tmp_path, monke
     groups = scan.exact_duplicates(shots)
     assert [[s.primary[-5:] for s in g] for g in groups] == [["b.jpg", "c.jpg"]]
     assert sorted(r for r in reads if r[1] is None) == [("b.jpg", None), ("c.jpg", None)]  # a.jpg: 64 KB only
+
+
+def test_copies_of_a_set_aside_burst_frame_join_its_burst(tmp_path, monkeypatch):
+    from burstbuster import pipeline
+    _photo(tmp_path / "IMG_1.jpg", 1)
+    shutil.copy(tmp_path / "IMG_1.jpg", tmp_path / "IMG_1 (1).jpg")       # exact copy: IMG_1 keeps the set
+    _photo(tmp_path / "IMG_2.jpg", 2, when="2024:05:01 10:00:01")          # next burst frame, sharper
+    sharp = {"IMG_1.jpg": 50, "IMG_1 (1).jpg": 50, "IMG_2.jpg": 100}
+    monkeypatch.setattr(pipeline, "_measure_all", lambda shots, *a: ({s.id: {
+        "sharp": sharp[os.path.basename(s.id)], "frame_sharp": sharp[os.path.basename(s.id)], "subject_kind": "centre", "clip_hi": 0.0, "brightness": 0.5,
+        "faces": [], "emb": [1.0] + [0.0] * 7, "w": 400, "h": 300} for s in shots}, []))
+    groups = analyze(str(tmp_path))["groups"]
+    assert len(groups) == 1 and groups[0]["type"] == "burst"  # one card: each photo shown once
+    keep = {os.path.basename(s["id"]): s["keep"] for s in groups[0]["shots"]}
+    assert keep == {"IMG_2.jpg": True, "IMG_1.jpg": False, "IMG_1 (1).jpg": False}

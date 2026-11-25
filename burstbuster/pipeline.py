@@ -45,11 +45,16 @@ def cached_feats(paths):
 def burst_group(shots, feats, level, chosen=None):
     """Pick within one burst and describe it for the report. shots: time-ordered, each with .id."""
     r = pick.pick_burst(shots, feats, level, chosen)
-    return r, {"type": "burst", "confidence": r["confidence"], "flags": r["flags"], "top": r["top"],
-               "focus": ("chosen" if chosen else "auto") if r["subject"] else None,
+    return r, {"type": "burst", **burst_fields(r, chosen),
                "shots": [dict(_shot_out(s, feats, d["keep"], d["reasons"], d["moment"], d["role"]),
                               subject=r["subject"].get(s.id))
                          for s in shots for d in [r["shots"][s.id]]]}
+
+
+def burst_fields(r, chosen):
+    """A burst group's fields that come from pick.pick_burst result `r`."""
+    return {"confidence": r["confidence"], "flags": r["flags"], "top": r["top"],
+            "focus": ("chosen" if chosen else "auto") if r["subject"] else None}
 
 
 def _measure_safe(path):
@@ -138,6 +143,14 @@ def analyze(root, recursive=True, level="pose", progress=None, cancelled=None, l
                     g["top"] = choice
             except Exception as e:  # the metric pick stands; tell the user why the AI didn't weigh in
                 g["flags"].append(f"AI second opinion unavailable ({type(e).__name__})")
+    # A kept copy that burst picking set aside: its copies go with it into the burst card, so each photo shows once
+    aside = {s["id"]: (g, s["moment"]) for g in groups if g["type"] == "burst" for s in g["shots"] if not s["keep"]}
+    for d in [g for g in groups if g["type"] == "duplicate" and g["top"] in aside]:
+        b, moment = aside[d["top"]]
+        b["shots"] += [dict(s, moment=moment) for s in d["shots"] if not s["keep"]]
+        if d["confidence"] == "close":
+            b["confidence"] = "close"
+        groups.remove(d)
     for i, g in enumerate(groups):
         g["id"] = i
         if g["type"] == "duplicate":  # what "keep photo details" would carry over, shown in the review

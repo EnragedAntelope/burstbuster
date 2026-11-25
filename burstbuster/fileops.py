@@ -174,6 +174,8 @@ def restore(run, shot_ids=None):
             for row_id, _, src, dst, _ in rows:
                 if not os.path.exists(dst):  # gone already; bringing back the rest is still right
                     skipped.append([shot, f"{os.path.basename(dst)} is missing from the holding folder"])
+                    if os.path.isdir(rows[0][4]):  # drive is there: removed by hand, as in recycle()
+                        _set(db, row_id, "gone", "missing from the holding folder")
                     continue
                 os.makedirs(os.path.dirname(src), exist_ok=True)
                 _move(dst, src)

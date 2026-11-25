@@ -313,3 +313,35 @@ def test_photo_that_crashes_the_analyser_is_found_and_the_rest_measured(tmp_path
                               lambda *a: None, lambda: False, print)
     assert pipeline._measure_all([scan.Shot(primary=n, files=[(n, 1, 1)]) for n in names],
                                  lambda *a: None, lambda: True, print) == (None, None)  # Stop works mid-recovery
+
+
+def test_put_back_closes_a_run_whose_files_were_removed_by_hand(tmp_path):
+    root = tmp_path / "photos"
+    a, b = _make(root, "IMG_1.JPG"), _make(root, "IMG_2.JPG")
+    fileops.set_aside(root, "run1", [_shot(a), _shot(b)])
+    os.remove(Path(fileops.holding_dir(root, "run1")) / "IMG_1.JPG")
+    r = fileops.restore("run1")
+    assert r["restored"] == [str(b)] and "missing" in r["skipped"][0][1]
+    assert fileops.open_runs() == []  # not listed as waiting forever
+
+
+def test_focus_repicks_a_burst_and_moves_files_to_match(tmp_path, monkeypatch):
+    from burstbuster import app, pipeline
+    root = tmp_path / "photos"
+    a, b, c = (_make(root, n) for n in ("a.jpg", "b.jpg", "a (1).jpg"))
+    shot = lambda p, keep, role: {**_shot(p), "keep": keep, "held": False, "role": role,  # noqa: E731
+                                  "reasons": [], "moment": 0, "user": True}
+    g = {"id": 0, "type": "burst", "confidence": "confident", "flags": [], "top": str(b), "focus": None,
+         "shots": [shot(a, True, "same-pose"), shot(b, True, "pick"), shot(c, False, "duplicate")]}
+    feat = lambda sharp: {"sharp": sharp, "frame_sharp": sharp, "subject_kind": "centre", "clip_hi": 0.0,  # noqa: E731
+                          "brightness": 0.5, "faces": [], "emb": [1.0, 0.0], "w": 4, "h": 3, "persons": []}
+    monkeypatch.setattr(pipeline, "cached_feats", lambda ids: {str(a): feat(100), str(b): feat(50), str(c): feat(100)})
+    monkeypatch.setattr(app, "RUNS", tmp_path / "runs")
+    api = app.Api()
+    api._report, api._run = {"root": str(root), "level": "pose", "groups": [g]}, "run1"
+    assert api.focus(0) == {"ok": True, "skipped": 0}
+    by = {Path(s["id"]).name: s for s in g["shots"]}
+    assert (by["a.jpg"]["keep"], by["b.jpg"]["keep"], by["b.jpg"]["held"]) == (True, False, True)
+    assert g["top"] == str(a) and "user" not in by["b.jpg"]
+    assert not b.exists() and a.exists() and c.exists()  # b moved to the holding folder; the copy left alone
+    assert by["a (1).jpg"]["held"] is False and by["a (1).jpg"]["user"]

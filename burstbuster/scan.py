@@ -66,15 +66,18 @@ def walk(root, recursive=True, skipped=None):
         except OSError:
             continue
         for e in entries:
-            if _is_link(e):
+            try:  # outside Windows these stat the entry, which a sync app may have removed since the listing
+                if _is_link(e):
+                    continue
+                if e.is_dir(follow_symlinks=False):
+                    if recursive and e.name != HOLDING_DIR and not e.name.startswith("."):
+                        stack.append(e.path)
+                    continue
+                if Path(e.name).suffix.lower() not in ALL_EXT:
+                    continue
+                st = e.stat(follow_symlinks=False)
+            except OSError:
                 continue
-            if e.is_dir(follow_symlinks=False):
-                if recursive and e.name != HOLDING_DIR and not e.name.startswith("."):
-                    stack.append(e.path)
-                continue
-            if Path(e.name).suffix.lower() not in ALL_EXT:
-                continue
-            st = e.stat(follow_symlinks=False)
             if getattr(st, "st_file_attributes", 0) & _CLOUD_ATTRS:
                 skipped.append(e.path)
                 continue

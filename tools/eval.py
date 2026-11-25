@@ -22,7 +22,9 @@ def main():
     labels = json.loads((Path(a.folder) / "labels.json").read_text(encoding="utf-8"))
     rep = analyze(a.folder, True, a.level, log=lambda m: None)
 
-    found = [{os.path.basename(s["id"]): s for s in g["shots"]} for g in rep["groups"] if g["type"] == "burst"]
+    # copies of a set-aside frame can join its burst card; they are not frames
+    found = [{os.path.basename(s["id"]): s for s in g["shots"] if s["role"] != "duplicate"}
+             for g in rep["groups"] if g["type"] == "burst"]
     fails = 0
     for b in labels["bursts"]:
         names = {n for m in b["moments"].values() for n in m}

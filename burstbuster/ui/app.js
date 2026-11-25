@@ -316,12 +316,13 @@ async function setKeep(s, keep, force = false) {
 }
 
 async function keepWhole(g) {
+  let why = null;
   for (const s of g.shots) if (!s.keep && !s.recycled) {
     const r = await call("set_keep", s.id, true, false);
-    if (!r.ok) { toast(r.why, 6000); break; }
+    if (!r.ok) { why = r.why; break; }
   }
   report = await call("get_report"); renderSummary(); renderGroups();
-  toast("Kept every photo in that set.");
+  toast(why || "Kept every photo in that set.", why ? 6000 : 3500);
 }
 
 // ---------- selection & keys ----------
@@ -417,7 +418,7 @@ $("restore-all").addEventListener("click", async () => {
   const r = await call("restore_all");
   $("done-title").textContent = "Everything is back where it was";
   $("done-text").textContent = `${plural(r.restored, "photo")} put back.` + (r.skipped.length
-    ? ` ${r.skipped.length} could not be moved (a file with the same name is already there); they are still in the holding folder.` : "");
+    ? ` ${r.skipped.length} could not be put back, for example: ${r.skipped[0][1]}.` : "");
   show("done");
 });
 $("open-hold").addEventListener("click", () => call("open_holding"));

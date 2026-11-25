@@ -236,23 +236,24 @@ class Api:
         """Re-pick a burst around one person (person `idx` in photo `sid`), or automatically when sid is None,
         then move photos to match. Your earlier keep / set-aside choices in this burst are replaced."""
         from types import SimpleNamespace
-        from .pipeline import burst_group, cached_feats
+        from . import pick
+        from .pipeline import burst_fields, cached_feats
         with self._lock:
             g = next(g for g in self._report["groups"] if g.get("id") == gid)
-            live = [s for s in g["shots"] if not s.get("recycled")]
+            # copies of a set-aside frame (pipeline folds them in) are not frames: re-picking leaves them alone
+            live = [s for s in g["shots"] if not s.get("recycled") and s["role"] != "duplicate"]
             if len(live) < 2:
                 return {"ok": False, "why": "Too few photos left in this burst."}
             feats = cached_feats([s["id"] for s in live])
             if len(feats) < len(live) or not all("persons" in f for f in feats.values()):
                 return {"ok": False, "why": "This burst was measured by an older version. Scan the folder again."}
-            _, new = burst_group([SimpleNamespace(id=s["id"]) for s in live], feats, self._report["level"],
-                                 (sid, idx) if sid else None)
-            by = {s["id"]: s for s in new["shots"]}
+            chosen = (sid, idx) if sid else None
+            r = pick.pick_burst([SimpleNamespace(id=s["id"]) for s in live], feats, self._report["level"], chosen)
             for s in live:
-                s.update({k: by[s["id"]][k] for k in ("keep", "reasons", "moment", "role", "subject")})
+                s.update(r["shots"][s["id"]], subject=r["subject"].get(s["id"]))
                 s.pop("user", None)
                 s.pop("blocked", None)
-            g.update({k: new[k] for k in ("confidence", "flags", "top", "focus")})
+            g.update(burst_fields(r, chosen))
             back = [s["id"] for s in live if s["keep"] and s["held"]]
             aside = [s for s in live if not s["keep"] and not s["held"]]
             skipped = []

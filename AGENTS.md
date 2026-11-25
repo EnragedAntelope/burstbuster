@@ -8,7 +8,7 @@ approval. User-facing usage lives in README.md; this file is for working on the 
 
 _Last verified: 2026-11-24_
 
-- **Status:** main is v1.1.3 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
+- **Status:** main is v1.1.4 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
   pytest on Windows, Ubuntu and macOS x Python 3.11-3.14 (`.github/workflows/tests.yml`).
 - **Works:** read-only CLI scan; grouping and picking (eval passed on a private local test set at all three
   levels before release); journaled move / restore / recycle with tests; pywebview GUI (start, progress, review with
@@ -22,12 +22,14 @@ _Last verified: 2026-11-24_
   exact copies keep the one with companion files, then more EXIF/XMP, then the name (`pipeline._name_rank`); same
   picture with edited metadata (JPEG/PNG/HEIC `scan.pixel_hash`) grouped as copies; a copies set whose removed
   copies hold details the keeper lacks, and that "Keep photo details" will not save, is flagged "close";
+  a copies keeper that burst picking sets aside takes its copies into that burst card (each photo in one card);
   a photo that crashes a worker is found one at a time and listed as unreadable while the rest are measured
   (cache saved every 50; three crashes in a row with nothing measured stop the scan with an error); DupeDestroyer mode (`mode="dupes"`,
   start-screen toggle, `scan --dupes`): copies only, no models; opt-in
   "Keep photo details" (`merge.py`): at Recycle time, details the keeper lacks go into a new `<file>.xmp` sidecar
   and it takes the oldest copy's mtime; a failed write puts that set's copies back; underexposed frames set aside
-  ("Darker", relative to the brightest shot, checked on real dark bursts); macOS/Linux support (Trash via
+  ("Darker", relative to the brightest shot, checked on real dark bursts); a crash at startup under `pythonw`
+  is written to `APP_DIR\log.txt` (checked with a forced crash); macOS/Linux support (Trash via
   send2trash, Qt webview on Linux, `start.sh`). Linux checked in WSL Ubuntu: CLI scan with models, window
 opens with a working bridge, set-aside then Trash on dummy files. macOS: CI tests only.
 - **In progress:** nothing.
@@ -43,9 +45,8 @@ opens with a working bridge, set-aside then Trash on dummy files. macOS: CI test
   - Re-tune `group.LOCAL_DIFF` on real exports (set on the public Windows wallpapers with synthetic edits) and
     re-time the README speed figures (copy matching now decodes candidates at 256 px).
   - DupeDestroyer: re-take `docs/start.png` (start screen now has the mode toggle and details checkbox), try it
-    on a real library, check a written sidecar opens in digiKam or darktable. A copy kept by a copies set can still
-    be set aside by burst picking (it then shows in two cards; pre-existing).
-  - Live-window click-through, real drag-and-drop, and a log file for `pythonw` startup crashes (see gaps).
+    on a real library, check a written sidecar opens in digiKam or darktable.
+  - Live-window click-through, including "Focus on a person", and real drag-and-drop (see gaps).
 - **Known gaps:** the review screen has been used in the live window; a full live run through to the Recycle
   Bin is (unknown - confirm before relying on this); the Recycle Bin call itself is verified on a dummy file.
   Drag-and-drop is wired (pywebview DOM drop event) but untested with a real drag.
@@ -53,10 +54,10 @@ opens with a working bridge, set-aside then Trash on dummy files. macOS: CI test
   Moment threshold retuned to 0.10 from user feedback (near-identical shots were kept as separate
   moments); `testset/labels.json` follows that coarser meaning. The private `testset/` is not present in
   every checkout, so `tools/eval.py` only runs where it exists. Not built: aesthetic score (judged not to
-  help near-identical shots), GPU inference, video analysis. A startup crash under `pythonw` is invisible
-  (no log file). Person following is tuned on one
-  outdoor burst only (`pick.SAME_PERSON`); `Api.focus` (re-pick plus file moves) is checked through the mocked
-  bridge, not yet in the live window. "Nicer pose" is not measured at all.
+  help near-identical shots), GPU inference, video analysis. Person following is tuned on one
+  outdoor burst only (`pick.SAME_PERSON`); `Api.focus` (re-pick plus file moves) crashed from v1.1.0 to v1.1.3
+  and is now tested in pytest and driven without a window on real models, not yet in the live window.
+  "Nicer pose" is not measured at all.
   The darker-frame limits (`pick.DARKER`, `OTHER_POSE_DARK`) were tuned on four private bursts with little
   margin (a dark frame at 78%, a normal one at 81%). Brightness is a gate, not a rank: of two passing frames
   the sharper wins even if the other is better exposed. Intel Macs are unsupported (no mediapipe wheel).

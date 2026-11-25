@@ -8,7 +8,7 @@ approval. User-facing usage lives in README.md; this file is for working on the 
 
 _Last verified: 2026-11-24_
 
-- **Status:** main is v1.1.4 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
+- **Status:** main is v1.1.5 (`burstbuster.__version__`), public on GitHub (one release per version); CI runs
   pytest on Windows, Ubuntu and macOS x Python 3.11-3.14 (`.github/workflows/tests.yml`).
 - **Works:** read-only CLI scan; grouping and picking (eval passed on a private local test set at all three
   levels before release); journaled move / restore / recycle with tests; pywebview GUI (start, progress, review with
@@ -29,7 +29,8 @@ _Last verified: 2026-11-24_
   "Keep photo details" (`merge.py`): at Recycle time, details the keeper lacks go into a new `<file>.xmp` sidecar
   and it takes the oldest copy's mtime; a failed write puts that set's copies back; underexposed frames set aside
   ("Darker", relative to the brightest shot, checked on real dark bursts); a crash at startup under `pythonw`
-  is written to `APP_DIR\log.txt` (checked with a forced crash); macOS/Linux support (Trash via
+  is written to `APP_DIR\log.txt` (checked with a forced crash); at start, saved reviews (`APP_DIR\runs`) of runs
+  with nothing left in a holding folder are deleted (`Api.init`); macOS/Linux support (Trash via
   send2trash, Qt webview on Linux, `start.sh`). Linux checked in WSL Ubuntu: CLI scan with models, window
 opens with a working bridge, set-aside then Trash on dummy files. macOS: CI tests only.
 - **In progress:** nothing.

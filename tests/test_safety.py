@@ -325,6 +325,18 @@ def test_put_back_closes_a_run_whose_files_were_removed_by_hand(tmp_path):
     assert fileops.open_runs() == []  # not listed as waiting forever
 
 
+def test_reviews_of_finished_runs_are_removed_at_start(tmp_path, monkeypatch):
+    from burstbuster import app
+    root = tmp_path / "photos"
+    fileops.set_aside(root, "open", [_shot(_make(root, "a.jpg"))])
+    monkeypatch.setattr(app, "RUNS", tmp_path / "runs")
+    monkeypatch.setattr(app, "SETTINGS", tmp_path / "settings.json")
+    for run in ("open", "done"):
+        app._save_json(app.RUNS / f"{run}.json", {"groups": []})
+    assert [r["run"] for r in app.Api().init()["open_runs"]] == ["open"]
+    assert sorted(p.name for p in app.RUNS.iterdir()) == ["open.json"]  # still reviewable; finished one gone
+
+
 def test_focus_repicks_a_burst_and_moves_files_to_match(tmp_path, monkeypatch):
     from burstbuster import app, pipeline
     root = tmp_path / "photos"
